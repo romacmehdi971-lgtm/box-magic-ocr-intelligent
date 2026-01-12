@@ -1,0 +1,64 @@
+# Configuration des entreprises gérées par BOX MAGIC
+# Version : 1.0.0
+
+entreprises:
+  # Martin's Traiteur - Cyril Martins
+  - name: "Martin's Traiteur"
+    siret: "12345678900012"
+    address: "123 rue Example, 75001 Paris"
+    phone: "01 23 45 67 89"
+    email: "contact@martinstraiteur.fr"
+    iban: "FR7630001007941234567890185"
+    tva: "FR12345678900"
+    
+    # Identité visuelle pour détection automatique
+    identity:
+      logo_patterns:
+        - "Martin's Traiteur"
+        - "MARTIN'S"
+        - "Martins Traiteur"
+      
+      footer_patterns:
+        - "Cyril Martins"
+        - "martinstraiteur"
+      
+      color_scheme:
+        primary: "#FF6B35"
+        secondary: "#004E89"
+  
+  # MT Production
+  - name: "MT Production"
+    siret: "98765432100098"
+    address: "456 avenue Industrie, 69000 Lyon"
+    phone: "04 12 34 56 78"
+    email: "info@mtproduction.fr"
+    iban: "FR7630004000031234567890143"
+    tva: "FR98765432100"
+    
+    identity:
+      logo_patterns:
+        - "MT Production"
+        - "MT PROD"
+      
+      footer_patterns:
+        - "mtproduction"
+        - "MT Production SARL"
+      
+      color_scheme:
+        primary: "#2E86AB"
+        secondary: "#A23B72"
+  
+  # Exemple future entreprise
+  # - name: "Nouvelle Entreprise"
+  #   siret: "11122233344455"
+  #   address: "789 bd Commerce, 33000 Bordeaux"
+  #   phone: "05 56 78 90 12"
+  #   email: "contact@nouvelle-entreprise.fr"
+  #   iban: "FR7612345678901234567890189"
+  #   tva: "FR11122233344"
+  #   
+  #   identity:
+  #     logo_patterns:
+  #       - "Nouvelle Entreprise"
+  #     footer_patterns:
+  #       - "nouvelle-entreprise"

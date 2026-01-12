@@ -1,0 +1,50 @@
+# BOX MAGIC OCR INTELLIGENT - Configuration principale
+# Version : 1.0.0
+
+# Niveau de logs
+log_level: INFO  # DEBUG, INFO, WARNING, ERROR
+
+# Configuration OCR Level 1
+ocr_level1:
+  confidence_threshold: 0.7  # Seuil pour escalade vers Level 2
+  timeout_seconds: 2
+
+# Configuration OCR Level 2
+ocr_level2:
+  confidence_threshold: 0.6  # Seuil pour escalade vers Level 3
+  timeout_seconds: 5
+
+# Configuration OCR Level 3
+ocr_level3:
+  enabled: true
+  create_rules: true  # Création automatique de règles mémoire
+
+# Stockage de la mémoire
+memory_store_path: memory/rules.json
+
+# Moteur OCR pour documents scannés
+ocr_engine: tesseract  # tesseract, google_vision, aws_textract
+
+# Configuration Google Sheets
+google_sheets:
+  enabled: true
+  credentials_path: config/google_credentials.json
+  spreadsheet_id: YOUR_SPREADSHEET_ID_HERE
+  
+  # Noms des feuilles (configurable si différent)
+  sheets:
+    index_global: INDEX GLOBAL
+    crm: CRM
+    comptabilite: COMPTABILITÉ
+    log_system: LOG SYSTEM
+    config: CONFIG
+
+# Configuration entreprises (ou référence à fichier externe)
+entreprises_config: config/entreprises.yaml
+
+# Options de traitement
+processing:
+  parallel_enabled: false
+  max_workers: 4
+  retry_on_error: true
+  max_retries: 2

@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Configuration locale
+config/*.local
+config/google_credentials.json
+*.yaml.local
+
+# Memory store (contient données sensibles)
+memory/rules.json
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Tests
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Documents de test (privés)
+documents/
+tests/fixtures/*.pdf
+tests/fixtures/*.png
+
+# Temporary
+tmp/
+temp/
+*.tmp
