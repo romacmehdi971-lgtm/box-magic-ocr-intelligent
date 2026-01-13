@@ -44,31 +44,28 @@ def log_ocr_decision(
     logger: logging.Logger,
     document_id: str,
     level: int,
-    decision: str,
-    details: Optional[Any] = None,
+    confidence: float,
+    needs_next_level: bool,
 ) -> None:
     """
     Log une décision OCR de manière structurée.
-
-    Compatibilité :
-    - Signature historique : (logger, document_id, level, decision)
-    - Signature tolérante : (logger, document_id, level, decision, details)
 
     Args:
         logger: Logger à utiliser
         document_id: ID du document
         level: Niveau OCR (1, 2, 3)
-        decision: Description de la décision
-        details: Détails optionnels (dict/str/obj) pour enrichir les logs
+        confidence: Score de confiance (0.0 à 1.0)
+        needs_next_level: Si vrai, le niveau suivant est nécessaire
     """
     try:
-        if details is None:
-            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}")
-        else:
-            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision} | DETAILS: {details}")
+        decision = "CONTINUE" if needs_next_level else "STOP"
+        logger.info(
+            f"[{document_id}] [Level {level}] DECISION: {decision} "
+            f"| CONFIDENCE: {confidence:.2f}"
+        )
     except Exception:
         # Ultra-safe : ne jamais casser le pipeline à cause d'un log
         try:
-            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}")
+            logger.info(f"[{document_id}] [Level {level}] Confidence: {confidence}")
         except Exception:
             pass
