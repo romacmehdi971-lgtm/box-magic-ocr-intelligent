@@ -9,6 +9,11 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
     """
     Configure un logger pour le système OCR.
 
+    Objectifs :
+    - Sortie console compatible Cloud Run
+    - Pas de duplication de handlers (reload)
+    - Niveau paramétrable
+
     Args:
         name: Nom du logger
         level: Niveau de log (DEBUG, INFO, WARNING, ERROR)
@@ -18,22 +23,20 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
     """
     logger = logging.getLogger(name)
 
-    # Évite la duplication de handlers en cas de reload Cloud Run
+    # Evite la duplication de handlers en cas de reload Cloud Run
     if logger.handlers:
         return logger
 
-    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
+    logger.setLevel(getattr(logging, str(level).upper(), logging.INFO))
 
-    formatter = logging.Formatter(
-        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Console handler (Cloud Run logs)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
+    logger.propagate = False
     return logger
 
 
@@ -47,26 +50,24 @@ def log_ocr_decision(
     """
     Log une décision OCR de manière structurée.
 
-    Compatibilité:
-    - Signature historique: (logger, document_id, level, decision)
-    - Signature tolérante: (logger, document_id, level, decision, details)
+    Compatibilité :
+    - Signature historique : (logger, document_id, level, decision)
+    - Signature tolérante : (logger, document_id, level, decision, details)
 
     Args:
         logger: Logger à utiliser
         document_id: ID du document
         level: Niveau OCR (1, 2, 3)
         decision: Description de la décision
-        details: Détails optionnels (dict/str/objet) pour enrichir les logs
+        details: Détails optionnels (dict/str/obj) pour enrichir les logs
     """
     try:
         if details is None:
             logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}")
         else:
-            logger.info(
-                f"[{document_id}] [Level {level}] DECISION: {decision} | DETAILS: {details}"
-            )
+            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision} | DETAILS: {details}")
     except Exception:
-        # Ultra safe: ne jamais casser le pipeline à cause d’un log
+        # Ultra-safe : ne jamais casser le pipeline à cause d'un log
         try:
             logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}")
         except Exception:
