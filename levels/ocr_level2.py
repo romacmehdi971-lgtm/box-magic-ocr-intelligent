@@ -1,9 +1,7 @@
 import re
 from copy import deepcopy
 from datetime import datetime
-from typing import Dict, List, Optional
-
-from utils.logger import log_ocr_decision
+from typing import List, Optional
 
 
 class OCRLevel2:
@@ -12,12 +10,19 @@ class OCRLevel2:
     - Consolidation des champs
     - Extraction structurée via heuristiques avancées
     - Amélioration du type de document
+
+    Patch SAFE:
+    - Normalise self.logger si un dict (ou autre) a été passé à la place d’un logger.
+    - Supporte les 2 signatures process() (legacy + nouveau previous_result).
     """
 
     def __init__(self, logger, validators=None):
-        self.logger = logger
+        self.logger = self._ensure_logger_(logger, "OCREngine.Level2")
         self.validators = validators
-        self.logger.info("OCR Level 2 initialized")
+        try:
+            self.logger.info("OCR Level 2 initialized")
+        except Exception:
+            pass
 
     def process(self, document, context=None, previous_result=None, ocr1_result=None, **kwargs) -> "OCRResult":
         """
@@ -28,14 +33,12 @@ class OCRLevel2:
         - Nouveau appel : process(document, context, previous_result=ocr1_result)
         """
 
-        # Compat: support both legacy call (document, ocr1_result, context) and new call (document, context, previous_result=...)
-        # Legacy positional swap detection
+        # Compat legacy positional swap:
         if context is not None and hasattr(context, "fields") and (previous_result is None or isinstance(previous_result, dict)):
             ocr1_result = context
             context = previous_result if isinstance(previous_result, dict) else {}
             previous_result = None
 
-        # Keyword aliases
         if context is None and "context" in kwargs:
             context = kwargs.get("context")
 
@@ -52,12 +55,11 @@ class OCRLevel2:
             context = {}
 
         from ocr_engine import OCRResult, FieldValue
+        from utils.logger import log_ocr_decision
 
-        # Ultra-safe: if OCR1 result is missing, return a minimal level-2 result instead of crashing
+        # SAFE: si aucun résultat niveau1
         if ocr1_result is None:
-            doc_id = getattr(document, "document_id", None)
-            if not doc_id and isinstance(context, dict):
-                doc_id = context.get("document_id")
+            doc_id = getattr(document, "document_id", None) or (context.get("document_id") if isinstance(context, dict) else None)
             document_id = str(doc_id or "unknown")
             entreprise_source = str((context.get("entreprise_source") if isinstance(context, dict) else "") or "")
             return OCRResult(
@@ -79,11 +81,9 @@ class OCRLevel2:
         logs: List[str] = []
 
         document_id = getattr(ocr1_result, "document_id", "") or getattr(document, "document_id", "unknown")
-        entreprise_source = getattr(ocr1_result, "entreprise_source", "") or context.get("entreprise_source", "")
+        entreprise_source = getattr(ocr1_result, "entreprise_source", "") or (context.get("entreprise_source") if isinstance(context, dict) else "")
 
-        # ---------------------------
-        # Extraction type doc (amélioration)
-        # ---------------------------
+        # Détection type doc améliorée
         doc_type = getattr(ocr1_result, "document_type", "autre") or "autre"
         text = getattr(document, "text", "") or ""
 
@@ -98,10 +98,8 @@ class OCRLevel2:
                 doc_type = "bon_livraison"
                 logs.append("LEVEL2_DOC_TYPE_BL")
 
-        # ---------------------------
-        # Extraction référence / numéro facture
-        # ---------------------------
-        if "numero_facture" not in fields or not fields.get("numero_facture"):
+        # Extraction référence / numéro facture (fallback)
+        if ("numero_facture" not in fields) or (not fields.get("numero_facture")):
             ref_match = re.search(r"N[°o]\s*([A-Z0-9-]+)", text, re.IGNORECASE)
             if ref_match:
                 fields["numero_facture"] = FieldValue(
@@ -113,18 +111,17 @@ class OCRLevel2:
                 )
                 logs.append("LEVEL2_NUM_FACTURE_EXTRACTED")
 
-        # ---------------------------
-        # Calcul de confiance (moyenne champs)
-        # ---------------------------
+        # Confiance moyenne des champs
         conf_values = []
-        for k, v in fields.items():
+        for _, v in fields.items():
             try:
                 if hasattr(v, "confidence"):
                     conf_values.append(float(v.confidence))
             except Exception:
                 pass
 
-        confidence = float(sum(conf_values) / max(len(conf_values), 1)) if conf_values else float(getattr(ocr1_result, "confidence", 0.0))
+        base_conf = float(getattr(ocr1_result, "confidence", 0.0) or 0.0)
+        confidence = float(sum(conf_values) / max(len(conf_values), 1)) if conf_values else base_conf
         needs_next_level = confidence < 0.75
 
         try:
@@ -146,3 +143,23 @@ class OCRLevel2:
             rule_created=None,
             logs=logs,
         )
+
+    def _ensure_logger_(self, maybe_logger, name: str):
+        """
+        Normalise un logger : si dict/None/objet invalide → crée un logger standard.
+        """
+        try:
+            if maybe_logger and hasattr(maybe_logger, "info") and hasattr(maybe_logger, "warning") and hasattr(maybe_logger, "error"):
+                return maybe_logger
+        except Exception:
+            pass
+
+        try:
+            from utils.logger import setup_logger
+            return setup_logger(name)
+        except Exception:
+            import logging
+            logger = logging.getLogger(name)
+            if not logger.handlers:
+                logging.basicConfig(level=logging.INFO)
+            return logger
