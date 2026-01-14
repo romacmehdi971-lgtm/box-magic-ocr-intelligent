@@ -1,15 +1,7 @@
-"""Logger configuration for OCR Engine
-
-Rôle:
-- Fournir un logger standard (stdout) compatible Cloud Run
-- Offrir une fonction log_ocr_decision ULTRA tolérante (compat multi-signatures)
-  afin de ne jamais casser le pipeline OCR (niveaux 1/2/3)
-
-Compatibilité log_ocr_decision:
-- Signature historique: (logger, document_id, level, decision)
-- Signature enrichie:  (logger, document_id, level, decision, details)
-- Signature métriques: (logger, document_id, level, decision, confidence, needs_next_level)
-- Toute variante supplémentaire est tolérée via *args/**kwargs (safe)
+"""
+Logger configuration for OCR Engine
+- setup_logger(): logger standard Cloud Run (stdout)
+- log_ocr_decision(): ultra-safe, compatible multi signatures
 """
 
 import json
@@ -19,15 +11,13 @@ from typing import Any, Optional
 
 
 def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
-    """Configure un logger pour le système OCR.
-
-    - Sortie console (stdout) compatible Cloud Run
-    - Anti-duplication des handlers (reload Cloud Run)
-    - Niveau paramétrable (DEBUG, INFO, WARNING, ERROR)
+    """
+    Configure a logger for Cloud Run (stdout).
+    Avoid handler duplication on reload.
     """
     logger = logging.getLogger(name)
 
-    # Évite la duplication de handlers en cas de reload Cloud Run
+    # Prevent duplicate handlers (Cloud Run reload)
     if logger.handlers:
         return logger
 
@@ -37,8 +27,8 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(formatter)
-    logger.addHandler(handler)
 
+    logger.addHandler(handler)
     logger.propagate = False
     return logger
 
@@ -47,96 +37,79 @@ def log_ocr_decision(
     logger: logging.Logger,
     document_id: str,
     level: int,
-    decision: str,
-    details: Optional[Any] = None,
-    confidence: Optional[float] = None,
-    needs_next_level: Optional[bool] = None,
     *args: Any,
-    **kwargs: Any,
+    **kwargs: Any
 ) -> None:
-    """Log une décision OCR de manière structurée, sans jamais casser le pipeline.
+    """
+    Ultra-safe OCR decision logging.
 
-    Cette fonction est volontairement tolérante:
-    - accepte plusieurs signatures historiques / enrichies
-    - accepte des arguments supplémentaires (ignorés ou intégrés en détails)
+    Supported signatures:
+    - Legacy: (logger, document_id, level, decision: str, details: Optional[Any])
+    - New:    (logger, document_id, level, confidence: float, needs_next_level: bool)
 
-    Args:
-        logger: Logger à utiliser
-        document_id: ID du document
-        level: Niveau OCR (1, 2, 3)
-        decision: Description de la décision (string)
-        details: Détails optionnels (dict/str/obj)
-        confidence: Score de confiance (0.0 à 1.0)
-        needs_next_level: Indique si le niveau suivant est requis
+    Must never break the pipeline.
     """
     try:
-        # ---- Détection d'appels anciens / ambigus (5ème paramètre)
-        # Cas fréquent: (logger, doc_id, level, decision, confidence) => details reçoit float
-        if confidence is None and needs_next_level is None and isinstance(details, (int, float)):
-            confidence = float(details)
-            details = None
+        decision = None
+        confidence = None
+        needs_next_level = None
+        details = None
 
-        # Cas: (logger, doc_id, level, decision, confidence, needs_next_level) passé via *args
-        # ou confusion positional => on tente de récupérer dans args si absents.
-        if confidence is None and args:
-            if isinstance(args[0], (int, float)):
-                confidence = float(args[0])
+        # Handle kwargs (if used)
+        if "decision" in kwargs:
+            decision = kwargs.get("decision")
+        if "confidence" in kwargs:
+            confidence = kwargs.get("confidence")
+        if "needs_next_level" in kwargs:
+            needs_next_level = kwargs.get("needs_next_level")
+        if "details" in kwargs:
+            details = kwargs.get("details")
 
-        if needs_next_level is None and args:
-            # needs_next_level peut être 2ème arg après confidence
-            for item in args:
-                if isinstance(item, bool):
-                    needs_next_level = bool(item)
-                    break
+        # Handle positional args
+        if len(args) >= 1:
+            # If arg0 is str -> legacy decision
+            if isinstance(args[0], str):
+                decision = args[0]
+                if len(args) >= 2:
+                    details = args[1]
+            else:
+                # Otherwise -> new signature confidence/needs_next_level
+                confidence = args[0]
+                if len(args) >= 2:
+                    needs_next_level = args[1]
 
-        # kwargs fallback
-        if confidence is None and "confidence" in kwargs:
-            try:
-                confidence = float(kwargs.get("confidence"))
-            except Exception:
-                pass
+        # Derive decision if missing
+        if decision is None and needs_next_level is not None:
+            decision = "CONTINUE" if bool(needs_next_level) else "STOP"
 
-        if needs_next_level is None and "needs_next_level" in kwargs:
-            try:
-                needs_next_level = bool(kwargs.get("needs_next_level"))
-            except Exception:
-                pass
-
-        # Si des args/kwargs supplémentaires existent, on les injecte dans details (audit)
-        extra = {}
-        if args:
-            extra["extra_args"] = [repr(a) for a in args]
-        if kwargs:
-            extra["extra_kwargs"] = {k: repr(v) for k, v in kwargs.items()}
-
-        payload = {
-            "document_id": document_id,
-            "level": int(level) if level is not None else None,
-            "decision": str(decision),
-        }
-
-        if confidence is not None:
-            payload["confidence"] = confidence
-        if needs_next_level is not None:
-            payload["needs_next_level"] = needs_next_level
-
-        if details is not None:
-            payload["details"] = details
-
-        if extra:
-            payload["extra"] = extra
-
-        # JSON safe
+        # Format confidence
+        conf_str = ""
         try:
-            msg = json.dumps(payload, ensure_ascii=False, default=str)
+            if confidence is not None:
+                conf_str = f" | CONFIDENCE: {float(confidence):.3f}"
         except Exception:
-            msg = f"[{document_id}] [Level {level}] DECISION: {decision} | confidence={confidence} | needs_next_level={needs_next_level} | details={repr(details)}"
+            conf_str = ""
 
-        logger.info(msg)
+        # Format details
+        details_str = ""
+        try:
+            if details is not None:
+                if isinstance(details, (dict, list)):
+                    details_str = f" | DETAILS: {json.dumps(details, ensure_ascii=False)}"
+                else:
+                    details_str = f" | DETAILS: {details}"
+        except Exception:
+            details_str = ""
+
+        # Final log
+        try:
+            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}{conf_str}{details_str}")
+        except Exception:
+            pass
 
     except Exception:
-        # Ultra safe: ne jamais casser le pipeline à cause des logs
+        # Ultra safe: never throw
         try:
-            logger.info(f"[{document_id}] [Level {level}] DECISION: {decision}")
+            logger.info(f"[{document_id}] [Level {level}] DECISION: UNKNOWN")
         except Exception:
             pass
