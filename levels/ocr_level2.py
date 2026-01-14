@@ -1,20 +1,62 @@
 import re
 from copy import deepcopy
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 
 class OCRLevel2:
     """
-    OCR Niveau 2 :
-    - Consolidation des champs
+    OCR Niveau 2 (BOX MAGIC OCR v1.0.0) :
+    - Consolidation + rattrapage champs critiques
     - Extraction structurée via heuristiques avancées
-    - Amélioration du type de document
+    - Nettoyage / correction des champs Level1
+    - Maintient le contrat BOX MAGIC :
+      type, numero_facture, societe, client, date_doc, ht, tva_montant, ttc, tva_taux
 
-    Patch SAFE:
+    SAFE:
     - Normalise self.logger si un dict (ou autre) a été passé à la place d’un logger.
     - Supporte les 2 signatures process() (legacy + nouveau previous_result).
     """
+
+    # Client “A l’attention de …”
+    CLIENT_PATTERNS = [
+        r"A\s*l['’]attention\s*de\s*([A-Z0-9&'’\-\s]{2,60})",
+        r"À\s*l['’]attention\s*de\s*([A-Z0-9&'’\-\s]{2,60})",
+        r"CLIENT\s*[:\-]\s*([A-Z0-9&'’\-\s]{2,60})",
+        r"DESTINATAIRE\s*[:\-]\s*([A-Z0-9&'’\-\s]{2,60})",
+    ]
+
+    # Numéro facture / devis Martin’s : "Facture FC 202 5/143" ou "FC 2025/143"
+    NUM_FACTURE_PATTERNS = [
+        r"FACTURE\s+FC\s*([0-9]{2,4}\s*/\s*[0-9]{1,6})",
+        r"\bFC\s*([0-9]{2,4}\s*/\s*[0-9]{1,6})\b",
+        r"\bFACTURE\s*FC\s*([0-9]{1,6})\b",
+        r"\bFC\s*([0-9]{1,6})\b",
+        # Cas OCR bruité : "FC 202 5/143"
+        r"FC\s*([0-9]{1,2})\s*([0-9]{1})\s*/\s*([0-9]{1,6})",
+    ]
+
+    NUM_DEVIS_PATTERNS = [
+        r"DEVIS\s+DV\s*([0-9]{2,4}\s*/\s*[0-9]{1,6})",
+        r"\bDV\s*([0-9]{2,4}\s*/\s*[0-9]{1,6})\b",
+        r"\bDEVIS\s*DV\s*([0-9]{1,6})\b",
+        r"\bDV\s*([0-9]{1,6})\b",
+        r"DV\s*([0-9]{1,2})\s*([0-9]{1})\s*/\s*([0-9]{1,6})",
+    ]
+
+    # Date robuste (priorité à “Le 12/06/2025”)
+    DATE_PATTERNS = [
+        r"\bLE\s+(\d{2})[/-](\d{2})[/-](\d{4})\b",
+        r"\b(\d{2})[/-](\d{2})[/-](\d{4})\b",
+        r"\b(\d{4})[/-](\d{2})[/-](\d{2})\b",
+    ]
+
+    # Montants (capture montant + contexte TTC/HT/TVA)
+    AMOUNT_PATTERN = r"(\d{1,3}(?:[,\s]\d{3})*|\d+)[.,](\d{2})\s*€?"
+
+    TTC_KEYWORDS = ["TOTAL TTC", "NET A PAYER", "NET À PAYER", "TOTAL A PAYER", "TOTAL À PAYER", "TTC"]
+    HT_KEYWORDS = ["TOTAL HT", "HORS TAXE", "SOUS-TOTAL", "SUBTOTAL", "HT"]
+    TVA_MONTANT_KEYWORDS = ["MONTANT TVA", "TVA", "VAT AMOUNT"]
 
     def __init__(self, logger, validators=None):
         self.logger = self._ensure_logger_(logger, "OCREngine.Level2")
@@ -26,8 +68,6 @@ class OCRLevel2:
 
     def process(self, document, context=None, previous_result=None, ocr1_result=None, **kwargs) -> "OCRResult":
         """
-        Traite un document au niveau 2, en s'appuyant sur les résultats du niveau 1.
-
         Compatibilité :
         - Ancien appel : process(document, ocr1_result, context)
         - Nouveau appel : process(document, context, previous_result=ocr1_result)
@@ -83,46 +123,83 @@ class OCRLevel2:
         document_id = getattr(ocr1_result, "document_id", "") or getattr(document, "document_id", "unknown")
         entreprise_source = getattr(ocr1_result, "entreprise_source", "") or (context.get("entreprise_source") if isinstance(context, dict) else "")
 
-        # Détection type doc améliorée
-        doc_type = getattr(ocr1_result, "document_type", "autre") or "autre"
         text = getattr(document, "text", "") or ""
+        text_upper = text.upper()
 
-        if text:
-            if re.search(r"\bFACTURE\b", text, re.IGNORECASE):
-                doc_type = "facture"
-                logs.append("LEVEL2_DOC_TYPE_FACTURE")
-            elif re.search(r"\bDEVIS\b", text, re.IGNORECASE):
-                doc_type = "devis"
-                logs.append("LEVEL2_DOC_TYPE_DEVIS")
-            elif re.search(r"\bBON\s+DE\s+LIVRAISON\b", text, re.IGNORECASE):
-                doc_type = "bon_livraison"
-                logs.append("LEVEL2_DOC_TYPE_BL")
+        # 1) Type doc amélioré
+        doc_type = getattr(ocr1_result, "document_type", "autre") or "autre"
+        if "FACTURE" in text_upper:
+            doc_type = "facture"
+            logs.append("LEVEL2_DOC_TYPE_FACTURE")
+        elif "DEVIS" in text_upper:
+            doc_type = "devis"
+            logs.append("LEVEL2_DOC_TYPE_DEVIS")
+        elif re.search(r"\bBON\s+DE\s+LIVRAISON\b", text_upper):
+            doc_type = "bon_livraison"
+            logs.append("LEVEL2_DOC_TYPE_BL")
 
-        # Extraction référence / numéro facture (fallback)
-        if ("numero_facture" not in fields) or (not fields.get("numero_facture")):
-            ref_match = re.search(r"N[°o]\s*([A-Z0-9-]+)", text, re.IGNORECASE)
-            if ref_match:
+        # 2) Harmonisation champ type (contrat BOX MAGIC)
+        if "type" not in fields or not getattr(fields.get("type"), "value", None):
+            fields["type"] = FieldValue(value=doc_type, confidence=0.80, extraction_method="derived", pattern="doc_type")
+            logs.append("LEVEL2_FIELD_TYPE_SET")
+
+        # 3) Numéro facture/devis (crucial)
+        if ("numero_facture" not in fields) or (not getattr(fields.get("numero_facture"), "value", None)):
+            num = self._extract_numero(text_upper, doc_type)
+            if num:
                 fields["numero_facture"] = FieldValue(
-                    value=ref_match.group(1),
-                    confidence=0.85,
+                    value=num,
+                    confidence=0.90,
                     extraction_method="regex",
                     position=None,
-                    pattern="N[°o]\\s*([A-Z0-9-]+)",
+                    pattern="NUM_DOC",
                 )
-                logs.append("LEVEL2_NUM_FACTURE_EXTRACTED")
+                logs.append("LEVEL2_NUMERO_FACTURE_EXTRACTED")
 
-        # Confiance moyenne des champs
-        conf_values = []
-        for _, v in fields.items():
-            try:
-                if hasattr(v, "confidence"):
-                    conf_values.append(float(v.confidence))
-            except Exception:
-                pass
+        # 4) Client (destinataire) - priorité “A l’attention de”
+        if ("client" not in fields) or (not getattr(fields.get("client"), "value", None)) or str(getattr(fields.get("client"), "value", "")).strip().upper() in ["UNKNOWN", "CLIENT_INCONNU", ""]:
+            client = self._extract_client(text_upper)
+            if client:
+                fields["client"] = FieldValue(
+                    value=client,
+                    confidence=0.88,
+                    extraction_method="client_block",
+                    position=None,
+                    pattern="CLIENT_BLOCK",
+                )
+                logs.append("LEVEL2_CLIENT_EXTRACTED")
 
-        base_conf = float(getattr(ocr1_result, "confidence", 0.0) or 0.0)
-        confidence = float(sum(conf_values) / max(len(conf_values), 1)) if conf_values else base_conf
-        needs_next_level = confidence < 0.75
+        # 5) Date doc (date_doc)
+        if ("date_doc" not in fields) or (not getattr(fields.get("date_doc"), "value", None)):
+            date_doc = self._extract_date_doc(text_upper)
+            if date_doc:
+                fields["date_doc"] = FieldValue(
+                    value=date_doc,
+                    confidence=0.90,
+                    extraction_method="regex",
+                    position=None,
+                    pattern="DATE_DOC",
+                )
+                logs.append("LEVEL2_DATE_DOC_EXTRACTED")
+
+        # 6) Montants (ttc, ht, tva_montant) - si manquants
+        self._fill_amounts_if_missing(fields, text_upper, logs)
+
+        # 7) TVA taux mapping (si tva_rate existe)
+        if ("tva_taux" not in fields) or (not getattr(fields.get("tva_taux"), "value", None)):
+            if "tva_rate" in fields and getattr(fields.get("tva_rate"), "value", None) is not None:
+                fields["tva_taux"] = FieldValue(
+                    value=getattr(fields["tva_rate"], "value", None),
+                    confidence=0.85,
+                    extraction_method="mapped",
+                    position=None,
+                    pattern="tva_rate->tva_taux",
+                )
+                logs.append("LEVEL2_TVA_TAUX_MAPPED")
+
+        # 8) Confiance & décision Level3 = basé sur champs critiques
+        confidence = self._compute_confidence(fields, getattr(ocr1_result, "confidence", 0.0))
+        needs_next_level = self._needs_level3(fields, confidence)
 
         try:
             log_ocr_decision(self.logger, document_id, 2, confidence, needs_next_level)
@@ -143,6 +220,136 @@ class OCRLevel2:
             rule_created=None,
             logs=logs,
         )
+
+    # ============================================================
+    # EXTRACTIONS
+    # ============================================================
+
+    def _extract_client(self, text_upper: str) -> Optional[str]:
+        for pat in self.CLIENT_PATTERNS:
+            m = re.search(pat, text_upper, re.IGNORECASE)
+            if m:
+                name = (m.group(1) or "").strip()
+                name = re.sub(r"\s+", " ", name)
+                name = re.sub(r"[^A-Z0-9&'’\-\s]", "", name).strip()
+                if len(name) >= 2:
+                    return name
+        return None
+
+    def _extract_numero(self, text_upper: str, doc_type: str) -> Optional[str]:
+        patterns = self.NUM_FACTURE_PATTERNS if doc_type == "facture" else self.NUM_DEVIS_PATTERNS if doc_type == "devis" else []
+        for pat in patterns:
+            m = re.search(pat, text_upper, re.IGNORECASE)
+            if m:
+                # Cas “FC 2 5/143” => group(1)=2 group(2)=5 group(3)=143
+                if m.lastindex and m.lastindex >= 3 and len(m.groups()) >= 3 and "FC" in pat or "DV" in pat:
+                    g1 = (m.group(1) or "").strip()
+                    g2 = (m.group(2) or "").strip()
+                    g3 = (m.group(3) or "").strip()
+                    if g1.isdigit() and g2.isdigit() and g3.isdigit():
+                        year = f"{g1}{g2}"
+                        return f"{year}/{g3}"
+                raw = (m.group(1) or "").strip()
+                raw = raw.replace(" ", "")
+                return raw
+        return None
+
+    def _extract_date_doc(self, text_upper: str) -> Optional[str]:
+        for pat in self.DATE_PATTERNS:
+            m = re.search(pat, text_upper, re.IGNORECASE)
+            if m:
+                # Pattern LE DD/MM/YYYY
+                if len(m.groups()) == 3 and m.group(1).isdigit() and m.group(2).isdigit() and m.group(3).isdigit():
+                    dd, mm, yyyy = m.group(1), m.group(2), m.group(3)
+                    if len(yyyy) == 4:
+                        return f"{yyyy}-{mm}-{dd}"
+                # YYYY-MM-DD
+                if len(m.groups()) == 3 and m.group(1).isdigit() and len(m.group(1)) == 4:
+                    yyyy, mm, dd = m.group(1), m.group(2), m.group(3)
+                    return f"{yyyy}-{mm}-{dd}"
+        return None
+
+    def _fill_amounts_if_missing(self, fields: Dict, text_upper: str, logs: List[str]):
+        from ocr_engine import FieldValue
+
+        def parse_amount(s: str) -> Optional[float]:
+            try:
+                parts = re.findall(self.AMOUNT_PATTERN, s)
+                if not parts:
+                    return None
+                integer_part, decimal_part = parts[-1][0], parts[-1][1]
+                integer_part = str(integer_part).replace(" ", "").replace(",", "")
+                return float(f"{integer_part}.{decimal_part}")
+            except Exception:
+                return None
+
+        lines = text_upper.split("\n")
+
+        # TTC
+        if ("ttc" not in fields) or (getattr(fields.get("ttc"), "value", 0) in [None, 0, "0", "0.0", 0.0]):
+            for line in lines:
+                if any(k in line for k in self.TTC_KEYWORDS):
+                    amt = parse_amount(line)
+                    if amt is not None and amt > 0:
+                        fields["ttc"] = FieldValue(value=float(amt), confidence=0.90, extraction_method="context_keyword", pattern="TTC")
+                        logs.append("LEVEL2_TTC_EXTRACTED")
+                        break
+
+        # HT
+        if ("ht" not in fields) or (getattr(fields.get("ht"), "value", 0) in [None, 0, "0", "0.0", 0.0]):
+            for line in lines:
+                if any(k in line for k in self.HT_KEYWORDS):
+                    amt = parse_amount(line)
+                    if amt is not None and amt > 0:
+                        fields["ht"] = FieldValue(value=float(amt), confidence=0.85, extraction_method="context_keyword", pattern="HT")
+                        logs.append("LEVEL2_HT_EXTRACTED")
+                        break
+
+        # TVA montant (attention : “TVA” peut aussi être taux, donc on cherche montant “€”)
+        if ("tva_montant" not in fields) or (getattr(fields.get("tva_montant"), "value", 0) in [None, 0, "0", "0.0", 0.0]):
+            for line in lines:
+                if any(k in line for k in self.TVA_MONTANT_KEYWORDS) and re.search(self.AMOUNT_PATTERN, line):
+                    amt = parse_amount(line)
+                    if amt is not None and amt > 0:
+                        fields["tva_montant"] = FieldValue(value=float(amt), confidence=0.80, extraction_method="context_keyword", pattern="TVA_MONTANT")
+                        logs.append("LEVEL2_TVA_MONTANT_EXTRACTED")
+                        break
+
+        # Calcul TTC si HT+TVA présents mais TTC absent
+        try:
+            if ("ttc" not in fields or getattr(fields.get("ttc"), "value", 0) in [0, 0.0, None]) and ("ht" in fields and "tva_montant" in fields):
+                ht = float(getattr(fields["ht"], "value", 0) or 0)
+                tva = float(getattr(fields["tva_montant"], "value", 0) or 0)
+                if ht > 0 and tva >= 0:
+                    fields["ttc"] = FieldValue(value=float(ht + tva), confidence=0.80, extraction_method="calculation", pattern="HT+TVA")
+                    logs.append("LEVEL2_TTC_CALCULATED")
+        except Exception:
+            pass
+
+    def _compute_confidence(self, fields: Dict, fallback: float) -> float:
+        conf_values = []
+        for _, v in fields.items():
+            try:
+                if hasattr(v, "confidence"):
+                    conf_values.append(float(v.confidence))
+            except Exception:
+                pass
+        return float(sum(conf_values) / max(len(conf_values), 1)) if conf_values else float(fallback or 0.0)
+
+    def _needs_level3(self, fields: Dict, confidence: float) -> bool:
+        # Champs indispensables pour générer Nom_Final
+        critical = ["type", "numero_facture", "client", "date_doc", "ttc"]
+        missing = any(
+            (k not in fields) or (not getattr(fields.get(k), "value", None))
+            or (str(getattr(fields.get(k), "value", "")).strip().upper() in ["UNKNOWN", "CLIENT_INCONNU"])
+            for k in critical
+        )
+        low_conf = confidence < 0.78
+        return missing or low_conf
+
+    # ============================================================
+    # LOGGER NORMALIZATION
+    # ============================================================
 
     def _ensure_logger_(self, maybe_logger, name: str):
         """
