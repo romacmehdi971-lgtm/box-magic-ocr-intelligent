@@ -1,12 +1,19 @@
 """
-Memory system - Rule storage and retrieval
+BOX MAGIC OCR INTELLIGENT
+Version 1.0.0
+
+OCR Engine intelligent à 3 niveaux pour traitement documentaire automatisé.
 """
 
-from .ai_memory import AIMemory
+__version__ = "1.0.0"
+__author__ = "BOX MAGIC 2026 - IA PROCESS FACTORY"
 
-# Rule est optionnel : on ne doit JAMAIS faire crasher l'import du package
-try:
-    from .ai_memory import Rule
-    __all__ = ["AIMemory", "Rule"]
-except Exception:
-    __all__ = ["AIMemory"]
+from .ocr_engine import OCREngine, OCRResult, FieldValue, ProcessingContext
+
+__all__ = [
+    'OCREngine',
+    'OCRResult',
+    'FieldValue',
+    'ProcessingContext',
+    '__version__'
+]
