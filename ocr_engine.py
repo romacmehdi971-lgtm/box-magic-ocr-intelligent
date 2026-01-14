@@ -46,7 +46,7 @@ class OCRResult:
     entreprise_source: str
     fields: Dict[str, FieldValue]
     processing_date: datetime
-    text: str = ""  # ✅ TEXTE OCR BRUT (PHASE 2.1)
+    text: str = ""  # TEXTE OCR BRUT
     needs_next_level: bool = False
     improved_fields: Optional[List[str]] = None
     corrections: Optional[List[str]] = None
@@ -78,12 +78,16 @@ class OCREngine:
         self.config = self._load_config(config_path)
         self.logger = setup_logger("OCREngine", self.config.get('log_level', 'INFO'))
 
-        self.ocr_level1 = OCRLevel1(self.config)
-        self.ocr_level2 = OCRLevel2(self.config)
-        self.ocr_level3 = OCRLevel3(self.config)
-
-        self.document_loader = DocumentLoader(self.config)
+        # Mémoire avant Level3
         self.memory = AIMemory(self.config.get('memory_store_path', 'memory/rules.json'))
+
+        # Levels
+        self.ocr_level1 = OCRLevel1(self.config)
+        self.ocr_level2 = OCRLevel2(setup_logger("OCREngine.Level2", self.config.get('log_level', 'INFO')))
+        self.ocr_level3 = OCRLevel3(setup_logger("OCREngine.Level3", self.config.get('log_level', 'INFO')), ai_memory=self.memory)
+
+        # Loader + Sheets
+        self.document_loader = DocumentLoader(self.config)
         self.sheets_connector = self._init_sheets_connector()
 
     def _load_config(self, config_path: str) -> dict:
@@ -129,7 +133,7 @@ class OCREngine:
             document = self.document_loader.load(file_path)
             self.logger.info(f"[{document_id}] Document loaded successfully")
 
-            # ✅ TEXTE OCR BRUT (PHASE 2.1)
+            # Texte OCR brut
             raw_text = document.get_text() or ""
 
             # 2. Préparation contexte
@@ -141,7 +145,7 @@ class OCREngine:
                 context.source_entreprise = detected
                 context.entreprise_config = self.config.get('entreprises', {}).get(detected, {})
 
-            # 4. Vérification règles mémoire (si disponible)
+            # 4. Vérification règles mémoire (si dispo)
             matching_rule = self.memory.find_matching_rule(document, context)
             if matching_rule and not options.get('force_full_ocr'):
                 result = self._apply_memory_rule(document, matching_rule, context, document_id)
@@ -149,7 +153,7 @@ class OCREngine:
                 # 5. Traitement OCR progressif
                 result = self._progressive_ocr(document, context, document_id)
 
-            # ✅ Injecte le texte OCR brut dans le résultat (toujours)
+            # Injecte texte OCR brut dans le résultat
             try:
                 result.text = raw_text
             except Exception:
@@ -203,9 +207,12 @@ class OCREngine:
         Apply an existing memory rule (Level 3 learned rules)
         """
         try:
-            result = self.ocr_level3.apply_rule(document, context, rule)
-            result.document_id = document_id
-            return result
+            # Si la mémoire supporte apply_rule, sinon fallback OCR
+            if hasattr(self.ocr_level3, "apply_rule"):
+                result = self.ocr_level3.apply_rule(document, context, rule)
+                result.document_id = document_id
+                return result
+            return self._progressive_ocr(document, context, document_id)
         except Exception as e:
             self.logger.warning(f"[{document_id}] Memory rule failed, fallback OCR: {e}")
             return self._progressive_ocr(document, context, document_id)
