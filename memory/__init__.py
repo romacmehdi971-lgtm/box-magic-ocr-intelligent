@@ -1,5 +1,5 @@
-"""Memory system - Rule storage and retrieval"""
+# memory/__init__.py
 
 from .ai_memory import AIMemory, Rule
 
-__all__ = ['AIMemory', 'Rule']
+__all__ = ["AIMemory", "Rule"]
