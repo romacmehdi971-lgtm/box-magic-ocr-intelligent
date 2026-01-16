@@ -461,11 +461,44 @@ class OCRLevel1:
     
     def _needs_escalation(self, fields: Dict, global_confidence: float) -> bool:
         """Détermine si le niveau 2 est nécessaire"""
-        # Champs critiques manquants
+                # Champs critiques manquants
         critical_fields = ['date_emission', 'total_ttc']
-        missing_critical = any(f not in fields for f in critical_fields)
-        
+        missing_critical = any(f not in fields or not fields.get(f) for f in critical_fields)
+
         # Confiance trop basse
         low_confidence = global_confidence < self.confidence_threshold
-        
-        return missing_critical or low_confidence
+
+        # ============================================================
+        # ✅ FORCE_OCR2_IF_RISK (MINIMAL, RÉVERSIBLE)
+        # Objectif : si des champs sont "remplis" mais manifestement toxiques
+        # (ex: client="Acompte versé...", reference/numero="Services"),
+        # on force OCR2 pour éviter un arrêt en LEVEL 1.
+        # ============================================================
+        force_ocr2_if_risk = False
+        try:
+            # Client suspect = ligne de paiement/acompte
+            client_val = ""
+            if "client" in fields and fields.get("client") and hasattr(fields["client"], "value"):
+                client_val = str(fields["client"].value or "")
+            client_low = client_val.lower()
+
+            paiement_keywords = ["acompte", "versé", "verse", "virement", "reglement", "règlement", "payé", "paye", "solde"]
+            if client_low and any(k in client_low for k in paiement_keywords):
+                force_ocr2_if_risk = True
+
+            # Reference suspecte = "Services" ou sans chiffres
+            ref_val = ""
+            if "reference" in fields and fields.get("reference") and hasattr(fields["reference"], "value"):
+                ref_val = str(fields["reference"].value or "")
+            ref_low = ref_val.lower()
+
+            if ref_low in ["service", "services"]:
+                force_ocr2_if_risk = True
+            elif ref_val and not re.search(r"\d", ref_val):
+                force_ocr2_if_risk = True
+
+        except Exception:
+            pass
+
+        return missing_critical or low_confidence or force_ocr2_if_risk
+
