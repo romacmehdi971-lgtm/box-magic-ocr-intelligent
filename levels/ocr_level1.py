@@ -84,10 +84,11 @@ class OCRLevel1:
         'société', 'company', 'entreprise'
     ]
     
-    CLIENT_KEYWORDS = [
+        CLIENT_KEYWORDS = [
         'client', 'customer', 'destinataire', 'to', 'facturé à',
-        'billed to', 'ship to'
+        'billed to', 'ship to', "à l'attention de", "a l'attention de", "à l’attention de", "a l’attention de"
     ]
+
     
     def __init__(self, config: dict):
         """
@@ -186,43 +187,105 @@ class OCRLevel1:
         
         return best_type, confidence
     
-    def _extract_date(self, text: str, text_lower: str) -> Optional['FieldValue']:
-        """Extrait la date d'émission"""
+        def _extract_date(self, text: str, text_lower: str) -> Optional['FieldValue']:
+        """Extrait la date d'émission (priorise haut de page et ignore dates de paiement/acompte)"""
         from ocr_engine import FieldValue
-        
-        for pattern in self.DATE_PATTERNS:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                # Prendre la première date trouvée
-                match = matches[0]
-                
-                # Parser selon format
-                if len(match) == 3:
-                    if match[0].isdigit() and match[1].isdigit():
-                        # Format numérique
-                        if len(match[0]) == 4:  # YYYY-MM-DD
-                            date_str = f"{match[0]}-{match[1]}-{match[2]}"
-                        else:  # DD/MM/YYYY
-                            date_str = f"{match[2]}-{match[1]}-{match[0]}"
-                    else:
-                        # Format avec mois en lettres
-                        mois_map = {
-                            'janvier': '01', 'février': '02', 'mars': '03',
-                            'avril': '04', 'mai': '05', 'juin': '06',
-                            'juillet': '07', 'août': '08', 'septembre': '09',
-                            'octobre': '10', 'novembre': '11', 'décembre': '12'
-                        }
-                        mois = mois_map.get(match[1].lower(), '01')
-                        date_str = f"{match[2]}-{mois}-{match[0]}"
-                    
-                    return FieldValue(
-                        value=date_str,
-                        confidence=0.9,
-                        extraction_method='regex',
-                        pattern=pattern
-                    )
-        
+
+        lines = text.split('\n')
+        # On priorise le haut du document (factures classiques : date en haut)
+        head_lines = lines[:25] if len(lines) > 25 else lines
+
+        # Mots-clés qui indiquent une vraie date de facture (haut de page)
+        date_context_keywords = [
+            'date', 'le ', 'émise', 'emise', 'facture', 'invoice'
+        ]
+
+        # Mots-clés de paiement à exclure (dates d’acompte/solde)
+        payment_keywords = [
+            'acompte', 'versé', 'verse', 'virement', 'règlement', 'reglement',
+            'payé', 'paye', 'solde', 'chèque', 'cheque', 'bnp'
+        ]
+
+        def parse_match(match) -> Optional[str]:
+            """Retourne YYYY-MM-DD ou None"""
+            if not match or len(match) != 3:
+                return None
+            # Cas numérique
+            if str(match[0]).isdigit() and str(match[1]).isdigit():
+                if len(str(match[0])) == 4:  # YYYY-MM-DD
+                    return f"{match[0]}-{match[1]}-{match[2]}"
+                # DD/MM/YYYY
+                return f"{match[2]}-{match[1]}-{match[0]}"
+            # Mois en lettres
+            mois_map = {
+                'janvier': '01', 'février': '02', 'fevrier': '02', 'mars': '03',
+                'avril': '04', 'mai': '05', 'juin': '06', 'juillet': '07',
+                'août': '08', 'aout': '08', 'septembre': '09',
+                'octobre': '10', 'novembre': '11', 'décembre': '12', 'decembre': '12'
+            }
+            mois = mois_map.get(str(match[1]).lower(), None)
+            if not mois:
+                return None
+            return f"{match[2]}-{mois}-{match[0]}"
+
+        # 1) Recherche prioritaire dans le haut de page avec contexte "date/facture/le"
+        for line in head_lines:
+            ll = line.lower()
+            if any(pk in ll for pk in payment_keywords):
+                continue
+            if not any(ck in ll for ck in date_context_keywords):
+                continue
+
+            for pattern in self.DATE_PATTERNS:
+                matches = re.findall(pattern, line, re.IGNORECASE)
+                if matches:
+                    date_str = parse_match(matches[0])
+                    if date_str:
+                        return FieldValue(
+                            value=date_str,
+                            confidence=0.93,
+                            extraction_method='regex_context_head',
+                            pattern=pattern
+                        )
+
+        # 2) Fallback : première date trouvée dans le haut de page hors paiement
+        for line in head_lines:
+            ll = line.lower()
+            if any(pk in ll for pk in payment_keywords):
+                continue
+
+            for pattern in self.DATE_PATTERNS:
+                matches = re.findall(pattern, line, re.IGNORECASE)
+                if matches:
+                    date_str = parse_match(matches[0])
+                    if date_str:
+                        return FieldValue(
+                            value=date_str,
+                            confidence=0.85,
+                            extraction_method='regex_head_fallback',
+                            pattern=pattern
+                        )
+
+        # 3) Dernier fallback : recherche globale (mais toujours exclusion paiement)
+        for line in lines:
+            ll = line.lower()
+            if any(pk in ll for pk in payment_keywords):
+                continue
+
+            for pattern in self.DATE_PATTERNS:
+                matches = re.findall(pattern, line, re.IGNORECASE)
+                if matches:
+                    date_str = parse_match(matches[0])
+                    if date_str:
+                        return FieldValue(
+                            value=date_str,
+                            confidence=0.75,
+                            extraction_method='regex_global_fallback',
+                            pattern=pattern
+                        )
+
         return None
+
     
     def _extract_amounts(self, text: str, text_lower: str) -> Dict[str, 'FieldValue']:
         """Extrait les montants HT, TVA, TTC"""
@@ -233,11 +296,17 @@ class OCRLevel1:
         # Recherche montants avec contexte
         lines = text.split('\n')
         
+                payment_keywords = ['acompte', 'versé', 'verse', 'virement', 'règlement', 'reglement', 'payé', 'paye', 'solde', 'chèque', 'cheque', 'bnp']
+
         for i, line in enumerate(lines):
             line_lower = line.lower()
-            
-            # Total TTC
-            if any(kw in line_lower for kw in ['total ttc', 'total', 'net à payer', 'amount due']):
+
+            # ⚠️ Ne jamais prendre de montants sur des lignes de paiement/acompte
+            if any(pk in line_lower for pk in payment_keywords):
+                continue
+
+            # Total TTC (éviter le mot "total" seul, trop dangereux)
+            if any(kw in line_lower for kw in ['total ttc', 'net à payer', 'amount due', 'total à payer', 'total a payer']):
                 amount = self._extract_amount_from_line(line)
                 if amount:
                     amounts['total_ttc'] = FieldValue(
@@ -246,9 +315,9 @@ class OCRLevel1:
                         extraction_method='context_keyword',
                         pattern='total_ttc'
                     )
-            
+
             # Total HT
-            elif any(kw in line_lower for kw in ['total ht', 'subtotal', 'hors taxe']):
+            elif any(kw in line_lower for kw in ['total ht', 'subtotal', 'hors taxe', 'total hors taxe', 'total hors-taxe']):
                 amount = self._extract_amount_from_line(line)
                 if amount:
                     amounts['total_ht'] = FieldValue(
@@ -257,9 +326,9 @@ class OCRLevel1:
                         extraction_method='context_keyword',
                         pattern='total_ht'
                     )
-            
-            # Montant TVA
-            elif any(kw in line_lower for kw in ['montant tva', 'tva', 'vat amount']):
+
+            # Montant TVA (éviter de matcher "tva" trop large sur d’autres contextes)
+            elif any(kw in line_lower for kw in ['montant tva', 'vat amount', 'tva :', 'tva:']):
                 amount = self._extract_amount_from_line(line)
                 if amount:
                     amounts['montant_tva'] = FieldValue(
@@ -268,6 +337,7 @@ class OCRLevel1:
                         extraction_method='context_keyword',
                         pattern='montant_tva'
                     )
+
         
         # Vérification cohérence HT + TVA = TTC
         if 'total_ht' in amounts and 'montant_tva' in amounts and 'total_ttc' not in amounts:
