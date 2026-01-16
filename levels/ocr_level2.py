@@ -197,10 +197,52 @@ class OCRLevel2:
         base_conf = float(getattr(ocr1_result, "confidence", 0.0) or 0.0)
         confidence = float(sum(conf_values) / max(len(conf_values), 1)) if conf_values else base_conf
 
-        # Escalade seulement si champs critiques manquent
+                # Escalade seulement si champs critiques manquent
         critical = ["numero_facture", "client", "ttc", "date_doc"]
         missing_critical = any(k not in fields or not fields.get(k) for k in critical)
-        needs_next_level = missing_critical or (confidence < 0.78)
+
+        # ============================================================
+        # ✅ FORCE_OCR3_IF_RISK (MINIMAL, RÉVERSIBLE)
+        # Objectif : forcer OCR3 si champs "critiques" sont remplis MAIS incohérents
+        # Cas terrain prouvé : numero_facture="Services" ; client="Acompte versé ..."
+        # ============================================================
+        force_ocr3_if_risk = False
+        try:
+            # 1) Risk client = ligne de paiement/acompte
+            client_val = ""
+            if "client" in fields and fields.get("client") and hasattr(fields["client"], "value"):
+                client_val = str(fields["client"].value or "")
+            client_low = client_val.lower()
+
+            paiement_keywords = ["acompte", "versé", "verse", "virement", "reglement", "règlement", "payé", "paye", "solde"]
+            if client_low and any(k in client_low for k in paiement_keywords):
+                force_ocr3_if_risk = True
+                logs.append("LEVEL2_RISK_FORCE_OCR3_CLIENT_PAYMENT_LINE")
+
+            # 2) Risk numero_facture invalide (ex: 'Services')
+            num_val = ""
+            if "numero_facture" in fields and fields.get("numero_facture") and hasattr(fields["numero_facture"], "value"):
+                num_val = str(fields["numero_facture"].value or "")
+            num_low = num_val.lower()
+
+            # Accepter un numéro "FC000143" ou similaire ; sinon risque
+            is_valid_invoice_number = bool(re.match(r"^(FC|FA|FACT)\d{5,}$", num_val.strip(), re.IGNORECASE))
+            if num_val and (not is_valid_invoice_number):
+                # cas toxique typique
+                if num_low in ["service", "services"]:
+                    force_ocr3_if_risk = True
+                    logs.append("LEVEL2_RISK_FORCE_OCR3_NUM_FACTURE_SERVICES")
+                # garde-fou minimal : numéro sans aucun chiffre -> risque
+                elif not re.search(r"\d", num_val):
+                    force_ocr3_if_risk = True
+                    logs.append("LEVEL2_RISK_FORCE_OCR3_NUM_FACTURE_NO_DIGITS")
+
+        except Exception:
+            # SAFE: ne jamais casser Level2
+            pass
+
+        needs_next_level = missing_critical or (confidence < 0.78) or force_ocr3_if_risk
+
 
         try:
             log_ocr_decision(self.logger, document_id, 2, confidence, needs_next_level)
