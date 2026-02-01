@@ -1,17 +1,22 @@
 # BOX MAGIC OCR INTELLIGENT - Requirements
-# Version : 1.0.0
+# Version : 1.0.1 - FIX OCR IMAGE + TYPE_DOCUMENT
 
 # Core dependencies
 pyyaml>=6.0
+
+# FastAPI pour Cloud Run
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6  # Pour upload de fichiers
 
 # PDF processing (choose one or more)
 PyPDF2>=3.0.0              # For text-based PDFs
 pdfplumber>=0.10.0         # Alternative PDF text extraction
 
-# OCR for scanned documents (optional but recommended)
+# OCR for scanned documents (CRITICAL)
 pytesseract>=0.3.10        # Tesseract wrapper
 Pillow>=10.0.0             # Image processing
-pdf2image>=1.16.0          # Convert PDF to images for OCR
+pdf2image>=1.16.0          # Convert PDF to images for OCR (requires poppler-utils)
 
 # Google Sheets integration (optional)
 google-api-python-client>=2.100.0

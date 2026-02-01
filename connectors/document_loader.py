@@ -117,37 +117,78 @@ class DocumentLoader:
             raise ValueError(f"Unsupported file format: {file_extension}")
     
     def _load_pdf(self, file_path: str) -> Document:
-        """Charge un PDF"""
+        """
+        Charge un PDF avec détection automatique PDF texte vs PDF scanné
+        
+        Logique :
+        1. Essayer extraction texte (PyPDF2/pdfplumber)
+        2. Si texte vide ou < 50 chars → considérer comme scanné
+        3. Basculer vers OCR image
+        """
+        logger.info(f"DOCUMENT_LOADER_SIGNATURE: _load_pdf called for {os.path.basename(file_path)}")
+        
+        pdf_text_detected = False
+        extracted_text = ""
+        
+        # === ÉTAPE 1 : TENTATIVE EXTRACTION TEXTE ===
+        
         # Essayer d'abord PyPDF2 (pour PDF textuels)
         if self.has_pypdf2:
             try:
                 text = self._extract_pdf_pypdf2(file_path)
                 if text.strip():
-                    logger.info(f"PDF loaded with PyPDF2: {len(text)} chars")
-                    return Document(file_path, text, {'method': 'pypdf2'})
+                    extracted_text = text
+                    logger.info(f"PyPDF2: extracted {len(text)} chars")
             except Exception as e:
                 logger.warning(f"PyPDF2 failed: {e}")
         
-        # Essayer pdfplumber
-        if self.has_pdfplumber:
+        # Si pas de texte, essayer pdfplumber
+        if not extracted_text and self.has_pdfplumber:
             try:
                 text = self._extract_pdf_pdfplumber(file_path)
                 if text.strip():
-                    logger.info(f"PDF loaded with pdfplumber: {len(text)} chars")
-                    return Document(file_path, text, {'method': 'pdfplumber'})
+                    extracted_text = text
+                    logger.info(f"pdfplumber: extracted {len(text)} chars")
             except Exception as e:
                 logger.warning(f"pdfplumber failed: {e}")
+        
+        # === ÉTAPE 2 : DÉCISION PDF TEXTE VS SCANNÉ ===
+        
+        # Seuil : minimum 50 caractères pour considérer comme "texte natif"
+        MIN_TEXT_THRESHOLD = 50
+        
+        if extracted_text.strip() and len(extracted_text.strip()) >= MIN_TEXT_THRESHOLD:
+            pdf_text_detected = True
+            logger.info(f"PDF_TEXT_DETECTED=true, OCR_MODE=TEXT (text_len={len(extracted_text)})")
+            return Document(file_path, extracted_text, {
+                'method': 'text_extraction',
+                'ocr_mode': 'TEXT',
+                'pdf_text_detected': True
+            })
+        
+        # === ÉTAPE 3 : PDF SCANNÉ → OCR IMAGE ===
+        
+        logger.info(f"PDF_TEXT_DETECTED=false, OCR_MODE=IMAGE (text_len={len(extracted_text)})")
+        logger.info("OCR_IMAGE_START: Converting PDF to images for OCR...")
         
         # Fallback : OCR avec pytesseract (PDF scanné)
         if self.has_pytesseract:
             try:
                 text = self._extract_pdf_ocr(file_path)
-                logger.info(f"PDF loaded with OCR: {len(text)} chars")
-                return Document(file_path, text, {'method': 'tesseract_ocr'})
+                logger.info(f"OCR_IMAGE_OK: Extracted {len(text)} chars via OCR")
+                logger.info(f"OCR_IMAGE_TEXT_LEN={len(text)}")
+                
+                return Document(file_path, text, {
+                    'method': 'tesseract_ocr',
+                    'ocr_mode': 'IMAGE',
+                    'pdf_text_detected': False
+                })
             except Exception as e:
-                logger.error(f"OCR failed: {e}")
+                logger.error(f"OCR_IMAGE_FAILED: {e}")
+                raise ValueError(f"OCR failed on scanned PDF: {e}")
         
         # Si rien n'a marché
+        logger.error("NO_OCR_METHOD_AVAILABLE: pytesseract not found")
         raise ValueError(f"Could not extract text from PDF: {file_path}. Install PyPDF2, pdfplumber or pytesseract")
     
     def _extract_pdf_pypdf2(self, file_path: str) -> str:
@@ -176,25 +217,43 @@ class DocumentLoader:
         return '\n'.join(text)
     
     def _extract_pdf_ocr(self, file_path: str) -> str:
-        """Extrait texte d'un PDF scanné via OCR"""
-        # Nécessite pdf2image + pytesseract
+        """
+        Extrait texte d'un PDF scanné via OCR
+        
+        Nécessite :
+        - pdf2image (Python lib)
+        - poppler-utils (pdftoppm binary)
+        - tesseract-ocr (binary + lang data)
+        """
         try:
             from pdf2image import convert_from_path
             import pytesseract
+        except ImportError as e:
+            raise ValueError(f"OCR dependencies missing: {e}. Install: pip install pdf2image pytesseract")
+        
+        try:
+            # Convertir PDF en images (nécessite poppler-utils)
+            logger.debug(f"Converting PDF to images (requires poppler-utils)...")
+            images = convert_from_path(file_path, dpi=200)  # 200 DPI pour meilleure qualité
+            logger.info(f"Converted to {len(images)} image(s)")
             
-            # Convertir PDF en images
-            images = convert_from_path(file_path)
-            
+            # OCR sur chaque page
             text = []
             for i, image in enumerate(images):
-                logger.debug(f"OCR page {i+1}/{len(images)}")
-                page_text = pytesseract.image_to_string(image, lang='fra')
+                logger.debug(f"OCR page {i+1}/{len(images)}...")
+                # Utiliser fra+eng pour meilleur résultat
+                page_text = pytesseract.image_to_string(image, lang='fra+eng')
                 text.append(page_text)
+                logger.debug(f"  → Page {i+1}: {len(page_text)} chars")
             
-            return '\n'.join(text)
+            full_text = '\n'.join(text)
+            logger.info(f"OCR completed: {len(full_text)} total chars from {len(images)} page(s)")
             
-        except ImportError:
-            raise ValueError("pdf2image required for OCR. Install: pip install pdf2image pytesseract")
+            return full_text
+            
+        except Exception as e:
+            logger.error(f"PDF to image conversion or OCR failed: {e}")
+            raise ValueError(f"OCR processing failed: {e}. Check poppler-utils and tesseract installation.")
     
     def _load_image(self, file_path: str) -> Document:
         """Charge une image via OCR"""

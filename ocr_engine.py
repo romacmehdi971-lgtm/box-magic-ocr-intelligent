@@ -21,6 +21,7 @@ from connectors.document_loader import DocumentLoader
 from utils.logger import setup_logger, log_ocr_decision
 from utils.validators import validate_ocr_result
 from utils.document_types import DocumentType
+from utils.type_detector import detect_document_type, get_document_type_confidence
 
 
 @dataclass
@@ -161,6 +162,17 @@ class OCREngine:
             document = self.document_loader.load(file_path)
             self.logger.info(f"[{document_id}] Document loaded successfully")
             
+            # 1.1 Détection type de document (basée sur le texte extrait)
+            detected_doc_type = detect_document_type(document.get_text())
+            type_confidence = get_document_type_confidence(document.get_text(), detected_doc_type)
+            self.logger.info(f"[{document_id}] Document type detected: {detected_doc_type} (confidence: {type_confidence:.2f})")
+            
+            # 1.2 Récupérer métadonnées OCR
+            ocr_mode = document.metadata.get('ocr_mode', 'UNKNOWN')
+            pdf_text_detected = document.metadata.get('pdf_text_detected', None)
+            
+            self.logger.info(f"[{document_id}] OCR metadata: mode={ocr_mode}, pdf_text_detected={pdf_text_detected}")
+            
             # 2. Préparation du contexte
             context = self._prepare_context(source_entreprise, options)
             
@@ -175,9 +187,18 @@ class OCREngine:
             if matching_rule and not options.get('force_full_ocr', False):
                 self.logger.info(f"[{document_id}] Applying memory rule: {matching_rule.id}")
                 result = self._apply_memory_rule(document, matching_rule, context, document_id)
+                # Ajouter le type détecté
+                result.document_type = detected_doc_type
             else:
                 # 5. Traitement OCR progressif
                 result = self._progressive_ocr(document, context, document_id)
+                # Remplacer le document_type par celui détecté (plus fiable que OCR1)
+                result.document_type = detected_doc_type
+            
+            # 5.1 Ajouter métadonnées OCR au résultat
+            result.logs.append(f"OCR_MODE={ocr_mode}")
+            result.logs.append(f"PDF_TEXT_DETECTED={pdf_text_detected}")
+            result.logs.append(f"DOCUMENT_TYPE={detected_doc_type} (confidence: {type_confidence:.2f})")
             
             # 6. Validation finale
             validation_result = validate_ocr_result(result)
