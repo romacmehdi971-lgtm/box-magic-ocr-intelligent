@@ -98,6 +98,17 @@ class OCRLevel2:
                 improved_fields.append(field_name)
                 logger.info(f"Missing field extracted: {field_name} (confidence: {extracted.confidence:.2f})")
         
+        # 4.5 🎯 ENRICHISSEMENT SPÉCIAL TICKET CB (SNIPER MODE)
+        if ocr1_result.document_type == "TICKET":
+            ticket_enriched = self._enrich_ticket_cb(text, fields, context_data)
+            for field_name, field_value in ticket_enriched.items():
+                # NE PAS ÉCRASER les champs déjà renseignés
+                if field_name not in fields or not fields[field_name].value:
+                    fields[field_name] = field_value
+                    if field_name not in improved_fields:
+                        improved_fields.append(field_name)
+                    logger.info(f"TICKET enrichment: {field_name} = {field_value.value} (confidence: {field_value.confidence:.2f})")
+        
         # 5. Croisement et validation
         fields = self._cross_validate_fields(fields, context_data)
         
@@ -508,6 +519,143 @@ class OCRLevel2:
             return 0.3
         
         return sum(confidences) / len(confidences)
+    
+    def _enrich_ticket_cb(self, text: str, fields: Dict, context_data: dict) -> Dict:
+        """
+        🎯 ENRICHISSEMENT SPÉCIAL TICKET CB (SNIPER MODE)
+        
+        Objectif : compléter les champs manquants UNIQUEMENT pour les TICKETS CB
+        Sans casser les factures/BL existants
+        
+        Extraction :
+        - SIRET fournisseur (14 chiffres) → fournisseur_siret
+        - Mode paiement CB/CARTE → mode_paiement
+        - 4 derniers chiffres carte → carte_last4
+        - Statut paiement → statut_paiement (PAYE si CB détecté)
+        - Montant CB → montant_encaisse
+        
+        Règles :
+        1. CONDITION STRICTE : document_type == "TICKET"
+        2. NE PAS ÉCRASER les champs déjà renseignés
+        3. Confiance modérée (0.75-0.85) car patterns spécifiques
+        """
+        from ocr_engine import FieldValue
+        
+        enriched = {}
+        text_upper = text.upper()
+        text_lines = text.split('\n')
+        
+        logger.debug("🎯 TICKET CB enrichment: starting analysis...")
+        
+        # 1. Détection SIRET fournisseur (14 chiffres)
+        # Pattern: \d{3}\s?\d{3}\s?\d{3}\s?\d{5}
+        siret_pattern = r'\b(\d{3}\s?\d{3}\s?\d{3}\s?\d{5})\b'
+        siret_matches = re.findall(siret_pattern, text)
+        if siret_matches:
+            # Prendre le premier SIRET (souvent en header)
+            siret_clean = siret_matches[0].replace(' ', '')
+            if len(siret_clean) == 14:
+                enriched['fournisseur_siret'] = FieldValue(
+                    value=siret_clean,
+                    confidence=0.85,
+                    extraction_method='pattern_siret_14digits',
+                    position=None,
+                    pattern=siret_pattern
+                )
+                logger.info(f"✓ SIRET fournisseur détecté: {siret_clean}")
+        
+        # 2. Détection Mode Paiement CB/CARTE
+        cb_keywords = ['CARTE BANCAIRE', 'CB', 'CARTE', 'VISA', 'MASTERCARD', 'AMEX', 'DEBIT', 'CREDIT']
+        mode_paiement_detected = None
+        for keyword in cb_keywords:
+            if keyword in text_upper:
+                mode_paiement_detected = 'CB'
+                break
+        
+        if mode_paiement_detected:
+            enriched['mode_paiement'] = FieldValue(
+                value='CB',
+                confidence=0.80,
+                extraction_method='keyword_carte_bancaire',
+                position=None,
+                pattern='|'.join(cb_keywords)
+            )
+            logger.info(f"✓ Mode paiement détecté: CB")
+            
+            # Si CB détecté → Statut PAYE
+            enriched['statut_paiement'] = FieldValue(
+                value='PAYE',
+                confidence=0.85,
+                extraction_method='derived_from_cb',
+                position=None,
+                pattern=None
+            )
+            logger.info(f"✓ Statut paiement: PAYE (dérivé de CB)")
+        
+        # 3. Détection 4 derniers chiffres carte
+        # Patterns: **** 1234, XXXX 1234, ...1234
+        carte_patterns = [
+            r'[\*X]{4}\s?[\*X]{4}\s?[\*X]{4}\s?(\d{4})',  # **** **** **** 1234
+            r'[\*X]{4}\s?(\d{4})',                          # **** 1234
+            r'\.\.\.(\d{4})',                               # ...1234
+            r'CARTE\s+(\d{4})',                             # CARTE 1234
+        ]
+        
+        carte_last4 = None
+        for pattern in carte_patterns:
+            matches = re.findall(pattern, text_upper)
+            if matches:
+                carte_last4 = matches[0]
+                break
+        
+        if carte_last4 and len(carte_last4) == 4:
+            enriched['carte_last4'] = FieldValue(
+                value=carte_last4,
+                confidence=0.75,
+                extraction_method='pattern_carte_masquee',
+                position=None,
+                pattern='carte_last4_digits'
+            )
+            logger.info(f"✓ Carte détectée (4 derniers chiffres): ****{carte_last4}")
+        
+        # 4. Détection Montant CB (si ligne contient "MONTANT" ou "TOTAL" près de CB)
+        montant_cb = None
+        for line in text_lines:
+            line_upper = line.upper()
+            if ('MONTANT' in line_upper or 'TOTAL' in line_upper) and any(k in line_upper for k in ['CB', 'CARTE', 'EUR', '€']):
+                # Extraire montant : pattern \d+[,.]\d{2}
+                amount_matches = re.findall(r'(\d+[,\.]\d{2})', line)
+                if amount_matches:
+                    try:
+                        montant_str = amount_matches[0].replace(',', '.')
+                        montant_cb = float(montant_str)
+                        break
+                    except ValueError:
+                        continue
+        
+        if montant_cb:
+            enriched['montant_encaisse'] = FieldValue(
+                value=str(montant_cb),
+                confidence=0.80,
+                extraction_method='extraction_montant_cb_line',
+                position=None,
+                pattern='montant_near_cb'
+            )
+            logger.info(f"✓ Montant encaissé CB: {montant_cb} EUR")
+        
+        # 5. Date encaissement = Date document (si disponible dans fields)
+        if 'date_doc' in fields and fields['date_doc'].value:
+            enriched['date_encaissement'] = FieldValue(
+                value=fields['date_doc'].value,
+                confidence=0.80,
+                extraction_method='derived_from_date_doc',
+                position=None,
+                pattern=None
+            )
+            logger.info(f"✓ Date encaissement: {fields['date_doc'].value}")
+        
+        logger.debug(f"🎯 TICKET CB enrichment: extracted {len(enriched)} new fields")
+        return enriched
     
     def _needs_escalation(self, fields: Dict, global_confidence: float, document, context) -> bool:
         """Détermine si le niveau 3 est nécessaire"""
