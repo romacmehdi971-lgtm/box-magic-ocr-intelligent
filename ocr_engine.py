@@ -1,424 +1,945 @@
-#!/usr/bin/env python3
 """
-BOX MAGIC OCR ENGINE - Point d'entrée principal
-Architecture 3 niveaux : Rapide → Approfondi → Mémoire
+OCR LEVEL 2 - ANALYSE APPROFONDIE
+Objectif : Améliorer les résultats OCR1 sans les dégrader
 """
 
-import os
+import re
 import logging
 from datetime import datetime
 from typing import Dict, Optional, List
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
-import yaml
+from copy import deepcopy
 
-from levels.ocr_level1 import OCRLevel1
-from levels.ocr_level2 import OCRLevel2
-from levels.ocr_level3 import OCRLevel3
-from memory.ai_memory import AIMemory
-from connectors.google_sheets import GoogleSheetsConnector
-from connectors.document_loader import DocumentLoader
-from utils.logger import setup_logger, log_ocr_decision
-from utils.validators import validate_ocr_result
-from utils.document_types import DocumentType
-from utils.type_detector import detect_document_type, get_document_type_confidence
+logger = logging.getLogger("OCREngine.Level2")
 
 
-@dataclass
-class FieldValue:
-    """Valeur d'un champ extrait avec sa confiance"""
-    value: any
-    confidence: float
-    extraction_method: Optional[str] = None
-    position: Optional[dict] = None
-    pattern: Optional[str] = None
-
-
-@dataclass
-class OCRResult:
-    """Résultat complet d'un traitement OCR"""
-    document_id: str
-    document_type: str
-    level: int  # 1, 2 ou 3
-    confidence: float  # 0.0 à 1.0
-    entreprise_source: str
-    fields: Dict[str, FieldValue]
-    processing_date: datetime
-    needs_next_level: bool = False
-    improved_fields: Optional[List[str]] = None
-    corrections: Optional[List[str]] = None
-    rule_created: Optional[dict] = None
-    logs: List[str] = field(default_factory=list)
-
-    def to_dict(self):
-        """Convertit en dictionnaire"""
-        result = asdict(self)
-        result['processing_date'] = self.processing_date.isoformat()
-        return result
-
-
-@dataclass
-class ProcessingContext:
-    """Contexte de traitement d'un document"""
-    source_entreprise: str
-    entreprise_config: dict
-    options: dict = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.now)
-
-
-class OCREngine:
+class OCRLevel2:
     """
-    Moteur OCR intelligent à 3 niveaux
+    OCR Niveau 2 : Analyse approfondie et amélioration ciblée
     
-    Usage:
-        engine = OCREngine(config_path="config/config.yaml")
-        result = engine.process_document("facture.pdf", "Martin's Traiteur")
+    Déclenché si :
+    - Confiance OCR1 < seuil (défaut 0.7)
+    - Champs critiques manquants
+    - Ambiguïtés détectées
+    
+    Fonctions :
+    - Analyse contextuelle avancée
+    - Recherche croisée d'informations
+    - Amélioration champ par champ
+    - Préservation des champs fiables OCR1
+    - Calculs et vérifications de cohérence
     """
     
-    def __init__(self, config_path: str = "config/config.yaml"):
+    def __init__(self, config: dict):
         """
-        Initialise le moteur OCR
+        Initialise OCR Level 2
         
         Args:
-            config_path: Chemin vers le fichier de configuration YAML
+            config: Configuration globale du système
         """
-        self.config = self._load_config(config_path)
-        self.logger = setup_logger(
-            "OCREngine", 
-            self.config.get('log_level', 'INFO')
-        )
-        
-        # Initialisation des niveaux OCR
-        self.ocr_level1 = OCRLevel1(self.config)
-        self.ocr_level2 = OCRLevel2(self.config)
-        self.ocr_level3 = OCRLevel3(self.config)
-        
-        # Initialisation de la mémoire
-        memory_path = self.config.get('memory_store_path', 'memory/rules.json')
-        self.memory = AIMemory(memory_path)
-        
-        # Initialisation des connecteurs
-        self.sheets_connector = self._init_sheets_connector()
-        self.document_loader = DocumentLoader(self.config)
-        
-        self.logger.info("OCR Engine initialized successfully")
+        self.config = config
+        self.confidence_threshold = config.get('ocr_level2', {}).get('confidence_threshold', 0.6)
+        logger.info("OCR Level 2 initialized")
     
-    def _load_config(self, config_path: str) -> dict:
-        """Charge la configuration depuis YAML"""
-        if not os.path.exists(config_path):
-            raise FileNotFoundError(f"Configuration file not found: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        
-        # Charger aussi les configurations entreprises
-        entreprises_path = config.get('entreprises_config', 'config/entreprises.yaml')
-        if os.path.exists(entreprises_path):
-            with open(entreprises_path, 'r', encoding='utf-8') as f:
-                config['entreprises'] = yaml.safe_load(f)
-        
-        return config
-    
-    def _init_sheets_connector(self) -> Optional[GoogleSheetsConnector]:
-        """Initialise le connecteur Google Sheets"""
-        try:
-            sheets_config = self.config.get('google_sheets', {})
-            if not sheets_config.get('enabled', True):
-                self.logger.warning("Google Sheets connector disabled in config")
-                return None
-            
-            return GoogleSheetsConnector(
-                credentials_path=sheets_config.get('credentials_path'),
-                spreadsheet_id=sheets_config.get('spreadsheet_id')
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to initialize Google Sheets connector: {e}")
-            return None
-    
-    def process_document(self, 
-                        file_path: str, 
-                        source_entreprise: str,
-                        options: Optional[dict] = None) -> OCRResult:
+    def process(self, document, ocr1_result: 'OCRResult', context) -> 'OCRResult':
         """
-        Point d'entrée principal - Traite un document
+        Améliore les résultats OCR1
         
         Args:
-            file_path: Chemin vers le document (PDF, image)
-            source_entreprise: Nom de l'entreprise source
-            options: Options supplémentaires (priority, force_level, etc.)
+            document: Document original
+            ocr1_result: Résultat OCR Level 1
+            context: ProcessingContext
         
         Returns:
-            OCRResult avec tous les champs extraits
+            OCRResult amélioré
         """
-        options = options or {}
-        document_id = self._generate_document_id(file_path)
+        from ocr_engine import OCRResult, FieldValue
         
-        self.logger.info(f"[{document_id}] Starting OCR processing")
-        self.logger.info(f"[{document_id}] File: {file_path}")
-        self.logger.info(f"[{document_id}] Source entreprise: {source_entreprise}")
+        # 1. PRÉSERVATION des résultats OCR1
+        fields = deepcopy(ocr1_result.fields)
+        improved_fields = []
         
-        try:
-            # 1. Chargement du document
-            document = self.document_loader.load(file_path)
-            self.logger.info(f"[{document_id}] Document loaded successfully")
+        text = document.get_text()
+        text_lower = text.lower()
+        
+        # 2. Extraction contexte avancé
+        context_data = self._extract_advanced_context(text, text_lower)
+        
+        # 3. Amélioration ciblée des champs faibles
+        for field_name, field_value in fields.items():
+            if field_value.confidence < 0.7 or field_value.value is None:
+                logger.debug(f"Attempting to improve field: {field_name} (current confidence: {field_value.confidence:.2f})")
+                
+                improved = self._improve_field(
+                    field_name, 
+                    document, 
+                    context_data,
+                    ocr1_result.document_type
+                )
+                
+                if improved and improved.confidence > field_value.confidence:
+                    fields[field_name] = improved
+                    improved_fields.append(field_name)
+                    logger.info(f"Field improved: {field_name} (confidence: {field_value.confidence:.2f} → {improved.confidence:.2f})")
+        
+        # 4. Recherche champs manquants critiques
+        missing_fields = self._find_missing_critical_fields(fields, ocr1_result.document_type)
+        for field_name in missing_fields:
+            logger.debug(f"Attempting to extract missing field: {field_name}")
             
-            # 1.1 Détection type de document (basée sur le texte extrait)
-            detected_doc_type = detect_document_type(document.get_text())
-            type_confidence = get_document_type_confidence(document.get_text(), detected_doc_type)
-            self.logger.info(f"[{document_id}] Document type detected: {detected_doc_type} (confidence: {type_confidence:.2f})")
+            extracted = self._extract_missing_field(
+                field_name,
+                document,
+                context_data,
+                ocr1_result.document_type
+            )
             
-            # 1.2 Récupérer métadonnées OCR
-            ocr_mode = document.metadata.get('ocr_mode', 'UNKNOWN')
-            pdf_text_detected = document.metadata.get('pdf_text_detected', None)
-            
-            self.logger.info(f"[{document_id}] OCR metadata: mode={ocr_mode}, pdf_text_detected={pdf_text_detected}")
-            
-            # 2. Préparation du contexte
-            context = self._prepare_context(source_entreprise, options)
-            
-            # 3. Détection entreprise si auto-detect
-            if source_entreprise == 'auto-detect':
-                detected_entreprise = self._detect_entreprise(document)
-                context.source_entreprise = detected_entreprise
-                self.logger.info(f"[{document_id}] Entreprise auto-detected: {detected_entreprise}")
-            
-            # 4. Vérification règle mémoire existante
-            matching_rule = self.memory.find_matching_rule(document, context)
-            if matching_rule and not options.get('force_full_ocr', False):
-                self.logger.info(f"[{document_id}] Applying memory rule: {matching_rule.id}")
-                result = self._apply_memory_rule(document, matching_rule, context, document_id)
-                # Ajouter le type détecté
-                result.document_type = detected_doc_type
-            else:
-                # 5. Traitement OCR progressif
-                result = self._progressive_ocr(document, context, document_id)
-                # Remplacer le document_type par celui détecté (plus fiable que OCR1)
-                result.document_type = detected_doc_type
-            
-            # 5.1 Ajouter métadonnées OCR au résultat
-            result.logs.append(f"OCR_MODE={ocr_mode}")
-            result.logs.append(f"PDF_TEXT_DETECTED={pdf_text_detected}")
-            result.logs.append(f"DOCUMENT_TYPE={detected_doc_type} (confidence: {type_confidence:.2f})")
-            
-            # 6. Validation finale
-            validation_result = validate_ocr_result(result)
-            if not validation_result.is_valid:
-                self.logger.warning(f"[{document_id}] Validation warnings: {validation_result.warnings}")
-            
-            # 7. Écriture dans Google Sheets
-            if self.sheets_connector:
-                self._write_to_sheets(result)
-                self.logger.info(f"[{document_id}] Results written to Google Sheets")
-            
-            # 8. Log final
-            self._log_final_result(result)
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"[{document_id}] OCR processing failed: {e}", exc_info=True)
-            # Log dans Google Sheets
-            if self.sheets_connector:
-                self.sheets_connector.write_to_log_system({
-                    'timestamp': datetime.now().isoformat(),
-                    'level': 'ERROR',
-                    'document_id': document_id,
-                    'ocr_level': 0,
-                    'message': f"OCR processing failed: {str(e)}",
-                    'errors': str(e)
-                })
-            raise
-    
-    def _progressive_ocr(self, document, context: ProcessingContext, document_id: str) -> OCRResult:
-        """
-        Traitement OCR progressif : Level 1 → Level 2 → Level 3
-        """
-        # LEVEL 1 - RAPIDE & STABLE
-        self.logger.info(f"[{document_id}] Starting OCR Level 1")
-        log_ocr_decision(self.logger, document_id, 1, "Starting fast extraction")
+            if extracted:
+                fields[field_name] = extracted
+                improved_fields.append(field_name)
+                logger.info(f"Missing field extracted: {field_name} (confidence: {extracted.confidence:.2f})")
         
-        result = self.ocr_level1.process(document, context)
-        result.document_id = document_id
+        # 4.5 🎯 ENRICHISSEMENT SPÉCIAL TICKET CB (SNIPER MODE)
+        if ocr1_result.document_type == "TICKET":
+            ticket_enriched = self._enrich_ticket_cb(text, fields, context_data)
+            for field_name, field_value in ticket_enriched.items():
+                # NE PAS ÉCRASER les champs déjà renseignés (sauf TTC TICKET si mieux)
+                if field_name not in fields or not fields[field_name].value:
+                    fields[field_name] = field_value
+                    if field_name not in improved_fields:
+                        improved_fields.append(field_name)
+                    logger.info(f"TICKET enrichment: {field_name} = {field_value.value} (confidence: {field_value.confidence:.2f})")
+                else:
+                    # Exception contrôlée : TICKET TTC robuste (si CB > TTC OCR)
+                    if field_name in ("ttc", "total_ttc", "ticket_total_ttc"):
+                        try:
+                            old_v = fields[field_name].value
+                            new_v = field_value.value
+                            old_n = float(str(old_v).replace(",", ".").strip()) if old_v is not None and str(old_v).strip() != "" else 0.0
+                            new_n = float(str(new_v).replace(",", ".").strip()) if new_v is not None and str(new_v).strip() != "" else 0.0
+                            if new_n > old_n:
+                                fields[field_name] = field_value
+                                if field_name not in improved_fields:
+                                    improved_fields.append(field_name)
+                                logger.info(f"TICKET enrichment override: {field_name} {old_n} → {new_n}")
+                        except Exception:
+                            pass
         
-        self.logger.info(f"[{document_id}] OCR Level 1 completed (confidence: {result.confidence:.2f})")
-        log_ocr_decision(self.logger, document_id, 1, 
-                        f"Extracted {len(result.fields)} fields, confidence: {result.confidence:.2f}")
+            # Ticket-specific normalization (prevent SIREN/SIRET leaking into client)
+            try:
+                client_v = (fields.get("client").value if fields.get("client") else "") or ""
+                if "siren" in str(client_v).lower():
+                    # move to fournisseur_siret if empty
+                    if not fields.get("fournisseur_siret") or not fields.get("fournisseur_siret").value:
+                        fields["fournisseur_siret"] = FieldValue(
+                            value=str(client_v).replace("~", "").strip(),
+                            confidence=fields.get("client").confidence if fields.get("client") else 0.6,
+                            extraction_method="ticket_postprocess",
+                            position=None,
+                            pattern=None
+                        )
+                    # client should be the entreprise_source
+                    if context_data.get("entreprise_source"):
+                        fields["client"] = FieldValue(
+                            value=context_data.get("entreprise_source"),
+                            confidence=0.9,
+                            extraction_method="ticket_postprocess",
+                            position=None,
+                            pattern=None
+                        )
+                # ensure fournisseur is present (fallback to societe if available)
+                if (not fields.get("fournisseur") or not fields.get("fournisseur").value) and fields.get("societe") and fields.get("societe").value:
+                    fields["fournisseur"] = fields.get("societe")
+            except Exception:
+                pass
+
+
+        # 5. Croisement et validation
+        fields = self._cross_validate_fields(fields, context_data)
         
-        # Décision Level 2
-        if not result.needs_next_level:
-            self.logger.info(f"[{document_id}] OCR Level 1 sufficient, stopping here")
-            return result
+        # 6. Calculs manquants (HT ↔ TTC ↔ TVA)
+        if self._can_calculate_missing_values(fields):
+            calculated_fields = self._calculate_missing_amounts(fields)
+            for field_name, field_value in calculated_fields.items():
+                if field_name not in fields or fields[field_name].confidence < field_value.confidence:
+                    fields[field_name] = field_value
+                    if field_name not in improved_fields:
+                        improved_fields.append(field_name)
+                    logger.info(f"Field calculated: {field_name} = {field_value.value}")
         
-        # LEVEL 2 - APPROFONDI
-        self.logger.info(f"[{document_id}] Escalating to OCR Level 2")
-        log_ocr_decision(self.logger, document_id, 2, 
-                        f"Level 1 insufficient (confidence: {result.confidence:.2f}), starting deep analysis")
+        # 7. Calcul confiance globale
+        global_confidence = self._calculate_global_confidence(fields)
         
-        result = self.ocr_level2.process(document, result, context)
+        # 8. Décision niveau suivant
+        needs_level3 = self._needs_escalation(
+            fields, 
+            global_confidence, 
+            document,
+            context
+        )
         
-        self.logger.info(f"[{document_id}] OCR Level 2 completed (confidence: {result.confidence:.2f})")
-        log_ocr_decision(self.logger, document_id, 2, 
-                        f"Improved fields: {result.improved_fields}, confidence: {result.confidence:.2f}")
-        
-        # Décision Level 3
-        if not result.needs_next_level:
-            self.logger.info(f"[{document_id}] OCR Level 2 sufficient, stopping here")
-            return result
-        
-        # LEVEL 3 - CONTRÔLE & MÉMOIRE (RARE)
-        self.logger.warning(f"[{document_id}] Escalating to OCR Level 3 (RARE)")
-        log_ocr_decision(self.logger, document_id, 3, 
-                        "Level 2 insufficient or unknown pattern, activating memory creation")
-        
-        result = self.ocr_level3.process(document, result, context)
-        
-        self.logger.info(f"[{document_id}] OCR Level 3 completed (confidence: {result.confidence:.2f})")
-        if result.rule_created:
-            self.logger.info(f"[{document_id}] Memory rule created: {result.rule_created.get('id')}")
-            log_ocr_decision(self.logger, document_id, 3, 
-                            f"Rule created: {result.rule_created.get('id')}, future similar documents will be faster")
-        
-        return result
-    
-    def _apply_memory_rule(self, document, rule, context: ProcessingContext, document_id: str) -> OCRResult:
-        """Applique une règle mémoire existante (bypass OCR classique)"""
-        self.logger.info(f"[{document_id}] Applying memory rule: {rule.name}")
-        
-        # Application de la règle
-        fields = rule.apply(document)
-        
-        # Construction du résultat
         result = OCRResult(
-            document_id=document_id,
-            document_type=rule.metadata.get('document_type', 'unknown'),
-            level=0,  # Level 0 = règle mémoire
-            confidence=0.95,  # Confiance haute pour règle validée
+            document_id=ocr1_result.document_id,
+            document_type=ocr1_result.document_type,
+            level=2,
+            confidence=global_confidence,
             entreprise_source=context.source_entreprise,
             fields=fields,
             processing_date=datetime.now(),
-            needs_next_level=False
+            needs_next_level=needs_level3,
+            improved_fields=improved_fields
         )
         
-        result.logs.append(f"Memory rule applied: {rule.id}")
-        result.logs.append(f"Rule success rate: {rule.metadata.get('success_rate', 'N/A')}")
+        logger.info(f"OCR Level 2 completed: improved {len(improved_fields)} fields, confidence: {global_confidence:.2f}")
         
         return result
     
-    def _detect_entreprise(self, document) -> str:
+    def _extract_advanced_context(self, text: str, text_lower: str) -> dict:
         """
-        Détecte l'entreprise source via patterns
+        Extrait le contexte avancé du document
         
-        Recherche dans le document :
-        - Patterns logo/identité visuelle
-        - SIRET
-        - Mots-clés footer/header
+        Returns:
+            dict avec structure, zones, patterns détectés
         """
-        entreprises = self.config.get('entreprises', {}).get('entreprises', [])
+        lines = text.split('\n')
         
-        document_text = document.get_text().lower()
+        context = {
+            'lines': lines,
+            'total_lines': len(lines),
+            'header': lines[:5] if len(lines) >= 5 else lines,
+            'footer': lines[-5:] if len(lines) >= 5 else lines,
+            'line_groups': self._group_lines_by_proximity(lines),
+            'tables': self._detect_tables(lines),
+            'siret_locations': self._find_siret_locations(text),
+            'amounts_map': self._map_all_amounts(lines),
+            'dates_map': self._map_all_dates(lines)
+        }
         
-        for entreprise in entreprises:
-            name = entreprise['name']
-            identity = entreprise.get('identity', {})
-            
-            # Vérification patterns logo
-            logo_patterns = identity.get('logo_patterns', [])
-            for pattern in logo_patterns:
-                if pattern.lower() in document_text:
-                    self.logger.debug(f"Entreprise detected via logo pattern: {pattern}")
-                    return name
-            
-            # Vérification footer patterns
-            footer_patterns = identity.get('footer_patterns', [])
-            for pattern in footer_patterns:
-                if pattern.lower() in document_text:
-                    self.logger.debug(f"Entreprise detected via footer pattern: {pattern}")
-                    return name
-            
-            # Vérification SIRET
-            siret = entreprise.get('siret', '')
-            if siret and siret in document_text:
-                self.logger.debug(f"Entreprise detected via SIRET: {siret}")
-                return name
-        
-        # Par défaut, première entreprise
-        default_entreprise = entreprises[0]['name'] if entreprises else 'Unknown'
-        self.logger.warning(f"No entreprise pattern matched, using default: {default_entreprise}")
-        return default_entreprise
+        return context
     
-    def _prepare_context(self, source_entreprise: str, options: dict) -> ProcessingContext:
-        """Prépare le contexte de traitement"""
-        entreprises = self.config.get('entreprises', {}).get('entreprises', [])
-        entreprise_config = next(
-            (e for e in entreprises if e['name'] == source_entreprise),
-            {}
-        )
+    def _group_lines_by_proximity(self, lines: List[str]) -> List[List[str]]:
+        """Groupe les lignes proches (même section)"""
+        groups = []
+        current_group = []
         
-        return ProcessingContext(
-            source_entreprise=source_entreprise,
-            entreprise_config=entreprise_config,
-            options=options
-        )
-    
-    def _write_to_sheets(self, result: OCRResult):
-        """Écrit les résultats dans Google Sheets"""
-        try:
-            # INDEX GLOBAL
-            self.sheets_connector.write_to_index_global(result)
-            
-            # CRM (si nouveau client)
-            if 'client' in result.fields:
-                self.sheets_connector.write_to_crm(result)
-            
-            # COMPTABILITÉ
-            if result.document_type in ['facture', 'devis', 'ticket', 'recu']:
-                self.sheets_connector.write_to_comptabilite(result)
-            
-            # LOG SYSTEM
-            for log_msg in result.logs:
-                self.sheets_connector.write_to_log_system({
-                    'timestamp': result.processing_date.isoformat(),
-                    'level': 'INFO',
-                    'document_id': result.document_id,
-                    'ocr_level': result.level,
-                    'message': log_msg
-                })
+        for line in lines:
+            if line.strip():
+                current_group.append(line)
+            else:
+                if current_group:
+                    groups.append(current_group)
+                    current_group = []
         
-        except Exception as e:
-            self.logger.error(f"Failed to write to Google Sheets: {e}")
-    
-    def _log_final_result(self, result: OCRResult):
-        """Log du résultat final"""
-        self.logger.info(f"[{result.document_id}] === FINAL RESULT ===")
-        self.logger.info(f"[{result.document_id}] Type: {result.document_type}")
-        self.logger.info(f"[{result.document_id}] Level: {result.level}")
-        self.logger.info(f"[{result.document_id}] Confidence: {result.confidence:.2%}")
-        self.logger.info(f"[{result.document_id}] Fields extracted: {len(result.fields)}")
+        if current_group:
+            groups.append(current_group)
         
-        # Détails des champs
-        for field_name, field_value in result.fields.items():
-            if isinstance(field_value, FieldValue):
-                self.logger.debug(f"[{result.document_id}]   {field_name}: {field_value.value} (conf: {field_value.confidence:.2f})")
+        return groups
     
-    def _generate_document_id(self, file_path: str) -> str:
-        """Génère un ID unique pour le document"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = Path(file_path).stem
-        return f"doc_{timestamp}_{filename}"
+    def _detect_tables(self, lines: List[str]) -> List[dict]:
+        """Détecte les structures tabulaires"""
+        tables = []
+        in_table = False
+        current_table = []
+        
+        for i, line in enumerate(lines):
+            # Détection tableau : plusieurs espaces/tabs ou alignement
+            has_multiple_columns = len(re.split(r'\s{2,}|\t', line.strip())) >= 3
+            
+            if has_multiple_columns:
+                if not in_table:
+                    in_table = True
+                    current_table = [line]
+                else:
+                    current_table.append(line)
+            else:
+                if in_table and current_table:
+                    tables.append({
+                        'lines': current_table,
+                        'start_index': i - len(current_table),
+                        'end_index': i - 1
+                    })
+                    current_table = []
+                in_table = False
+        
+        return tables
     
-    def get_statistics(self) -> dict:
-        """Retourne les statistiques du moteur OCR"""
-        return {
-            'memory_rules': self.memory.get_rule_stats(),
-            'config': {
-                'entreprises_count': len(self.config.get('entreprises', {}).get('entreprises', [])),
-                'log_level': self.config.get('log_level', 'INFO'),
-                'sheets_enabled': self.config.get('google_sheets', {}).get('enabled', False)
-            }
+    def _find_siret_locations(self, text: str) -> List[dict]:
+        """Localise tous les SIRET dans le document"""
+        siret_pattern = r'\b\d{3}\s?\d{3}\s?\d{3}\s?\d{5}\b'
+        locations = []
+        
+        for match in re.finditer(siret_pattern, text):
+            siret = match.group().replace(' ', '')
+            locations.append({
+                'siret': siret,
+                'position': match.start(),
+                'context': text[max(0, match.start()-50):match.end()+50]
+            })
+        
+        return locations
+    
+    def _map_all_amounts(self, lines: List[str]) -> List[dict]:
+        """Cartographie tous les montants avec leur contexte"""
+        amounts_map = []
+        
+        amount_pattern = r'(\d+[,\s]\d{3}|\d+)[.,](\d{2})\s*€?'
+        
+        for i, line in enumerate(lines):
+            for match in re.finditer(amount_pattern, line):
+                amount_str = match.group()
+                try:
+                    # Parse amount
+                    amount_clean = amount_str.replace(',', '.').replace(' ', '').replace('€', '').strip()
+                    amount_value = float(amount_clean)
+                    
+                    amounts_map.append({
+                        'value': amount_value,
+                        'line_index': i,
+                        'line_text': line,
+                        'position': match.start()
+                    })
+                except ValueError:
+                    continue
+        
+        return amounts_map
+    
+    def _map_all_dates(self, lines: List[str]) -> List[dict]:
+        """Cartographie toutes les dates avec leur contexte"""
+        dates_map = []
+        
+        date_patterns = [
+            r'\b(\d{2})[/-](\d{2})[/-](\d{4})\b',
+            r'\b(\d{4})[/-](\d{2})[/-](\d{2})\b'
+        ]
+        
+        for i, line in enumerate(lines):
+            for pattern in date_patterns:
+                for match in re.finditer(pattern, line):
+                    dates_map.append({
+                        'raw': match.group(),
+                        'line_index': i,
+                        'line_text': line,
+                        'position': match.start()
+                    })
+        
+        return dates_map
+    
+    def _improve_field(self, field_name: str, document, context_data: dict, doc_type: str) -> Optional['FieldValue']:
+        """Améliore un champ spécifique"""
+        from ocr_engine import FieldValue
+        
+        # Stratégies d'amélioration par type de champ
+        if 'date' in field_name:
+            return self._improve_date_field(field_name, context_data)
+        
+        elif 'montant' in field_name or 'total' in field_name:
+            return self._improve_amount_field(field_name, context_data)
+        
+        elif field_name in ['client', 'fournisseur']:
+            return self._improve_party_field(field_name, document, context_data)
+        
+        elif 'tva' in field_name:
+            return self._improve_tva_field(context_data)
+        
+        return None
+    
+    def _improve_date_field(self, field_name: str, context_data: dict) -> Optional['FieldValue']:
+        """Améliore l'extraction de date"""
+        from ocr_engine import FieldValue
+        
+        dates_map = context_data.get('dates_map', [])
+        
+        if not dates_map:
+            return None
+        
+        # Prendre la première date (souvent date d'émission)
+        if 'emission' in field_name and dates_map:
+            first_date = dates_map[0]
+            return FieldValue(
+                value=first_date['raw'],
+                confidence=0.75,
+                extraction_method='context_first_date',
+                position={'line': first_date['line_index']}
+            )
+        
+        # Date d'échéance (souvent après "échéance" ou en fin)
+        elif 'echeance' in field_name:
+            for date_info in dates_map:
+                if 'échéance' in date_info['line_text'].lower() or 'due' in date_info['line_text'].lower():
+                    return FieldValue(
+                        value=date_info['raw'],
+                        confidence=0.80,
+                        extraction_method='context_keyword',
+                        position={'line': date_info['line_index']}
+                    )
+        
+        return None
+    
+    def _improve_amount_field(self, field_name: str, context_data: dict) -> Optional['FieldValue']:
+        """Améliore l'extraction de montant"""
+        from ocr_engine import FieldValue
+        
+        amounts_map = context_data.get('amounts_map', [])
+        
+        if not amounts_map:
+            return None
+        
+        # Recherche par contexte
+        for amount_info in amounts_map:
+            line_lower = amount_info['line_text'].lower()
+            
+            if field_name == 'total_ttc' and any(kw in line_lower for kw in ['total', 'net à payer', 'amount due']):
+                return FieldValue(
+                    value=amount_info['value'],
+                    confidence=0.85,
+                    extraction_method='context_deep',
+                    position={'line': amount_info['line_index']}
+                )
+            
+            elif field_name == 'total_ht' and any(kw in line_lower for kw in ['total ht', 'subtotal', 'hors']):
+                return FieldValue(
+                    value=amount_info['value'],
+                    confidence=0.80,
+                    extraction_method='context_deep',
+                    position={'line': amount_info['line_index']}
+                )
+            
+            elif field_name == 'montant_tva' and 'tva' in line_lower and 'rate' not in line_lower:
+                return FieldValue(
+                    value=amount_info['value'],
+                    confidence=0.75,
+                    extraction_method='context_deep',
+                    position={'line': amount_info['line_index']}
+                )
+        
+        return None
+    
+    def _improve_party_field(self, field_name: str, document, context_data: dict) -> Optional['FieldValue']:
+        """Améliore l'extraction client/fournisseur"""
+        from ocr_engine import FieldValue
+        
+        # Recherche SIRET puis nom associé
+        siret_locations = context_data.get('siret_locations', [])
+        
+        for siret_info in siret_locations:
+            context_text = siret_info['context']
+            # Extraire nom avant SIRET
+            lines_before = context_text[:context_text.find(siret_info['siret'])].split('\n')
+            if lines_before:
+                potential_name = lines_before[-1].strip()
+                if potential_name and len(potential_name) > 3:
+                    return FieldValue(
+                        value=potential_name,
+                        confidence=0.70,
+                        extraction_method='siret_context',
+                        pattern=siret_info['siret']
+                    )
+        
+        return None
+    
+    def _improve_tva_field(self, context_data: dict) -> Optional['FieldValue']:
+        """Améliore l'extraction du taux TVA"""
+        from ocr_engine import FieldValue
+        
+        # Si on a HT et TTC, calculer le taux
+        # Sera fait dans calculate_missing_amounts
+        
+        return None
+    
+    def _find_missing_critical_fields(self, fields: Dict, doc_type: str) -> List[str]:
+        """Identifie les champs critiques manquants"""
+        critical_by_type = {
+            'facture': ['date_emission', 'total_ttc', 'client', 'reference'],
+            'devis': ['date_emission', 'total_ttc', 'client', 'reference'],
+            'ticket': ['date_emission', 'total_ttc'],
+            'recu': ['date_emission', 'total_ttc']
+        }
+        
+        required = critical_by_type.get(doc_type, ['date_emission', 'total_ttc'])
+        missing = [field for field in required if field not in fields]
+        
+        return missing
+    
+    def _extract_missing_field(self, field_name: str, document, context_data: dict, doc_type: str) -> Optional['FieldValue']:
+        """Extrait un champ manquant"""
+        # Utilise les mêmes méthodes que improve_field
+        return self._improve_field(field_name, document, context_data, doc_type)
+    
+    def _cross_validate_fields(self, fields: Dict, context_data: dict) -> Dict:
+        """Valide et ajuste les champs entre eux"""
+        # Exemple : si client contient le pattern de l'entreprise source, c'est une erreur
+        
+        # Vérification montants
+        if all(k in fields for k in ['total_ht', 'montant_tva', 'total_ttc']):
+            calculated_ttc = fields['total_ht'].value + fields['montant_tva'].value
+            actual_ttc = fields['total_ttc'].value
+            
+            # Tolérance 1%
+            if abs(calculated_ttc - actual_ttc) / actual_ttc > 0.01:
+                logger.warning(f"TTC inconsistency: calculated={calculated_ttc}, actual={actual_ttc}")
+                # Garder le TTC (plus fiable) et recalculer les autres si besoin
+        
+        return fields
+    
+    def _can_calculate_missing_values(self, fields: Dict) -> bool:
+        """Vérifie si on peut calculer des valeurs manquantes"""
+        # Si on a 2 sur 3 de [HT, TVA, TTC], on peut calculer le 3ème
+        has_ht = 'total_ht' in fields and fields['total_ht'].value
+        has_tva = 'montant_tva' in fields and fields['montant_tva'].value
+        has_ttc = 'total_ttc' in fields and fields['total_ttc'].value
+        has_rate = 'tva_rate' in fields and fields['tva_rate'].value
+        
+        count = sum([has_ht, has_tva, has_ttc])
+        
+        return count >= 2 or (has_ttc and has_rate)
+    
+    def _calculate_missing_amounts(self, fields: Dict) -> Dict:
+        """Calcule les montants manquants"""
+        from ocr_engine import FieldValue
+        
+        calculated = {}
+        
+        has_ht = 'total_ht' in fields and fields['total_ht'].value
+        has_tva = 'montant_tva' in fields and fields['montant_tva'].value
+        has_ttc = 'total_ttc' in fields and fields['total_ttc'].value
+        has_rate = 'tva_rate' in fields and fields['tva_rate'].value
+        
+        # HT + TVA → TTC
+        if has_ht and has_tva and not has_ttc:
+            calculated['total_ttc'] = FieldValue(
+                value=round(fields['total_ht'].value + fields['montant_tva'].value, 2),
+                confidence=0.85,
+                extraction_method='calculation_ht_plus_tva'
+            )
+        
+        # TTC - TVA → HT
+        elif has_ttc and has_tva and not has_ht:
+            calculated['total_ht'] = FieldValue(
+                value=round(fields['total_ttc'].value - fields['montant_tva'].value, 2),
+                confidence=0.85,
+                extraction_method='calculation_ttc_minus_tva'
+            )
+        
+        # TTC - HT → TVA
+        elif has_ttc and has_ht and not has_tva:
+            calculated['montant_tva'] = FieldValue(
+                value=round(fields['total_ttc'].value - fields['total_ht'].value, 2),
+                confidence=0.85,
+                extraction_method='calculation_ttc_minus_ht'
+            )
+        
+        # TTC + rate → HT + TVA
+        elif has_ttc and has_rate:
+            rate = fields['tva_rate'].value / 100
+            ht = round(fields['total_ttc'].value / (1 + rate), 2)
+            tva = round(fields['total_ttc'].value - ht, 2)
+            
+            if not has_ht:
+                calculated['total_ht'] = FieldValue(
+                    value=ht,
+                    confidence=0.80,
+                    extraction_method='calculation_from_ttc_rate'
+                )
+            
+            if not has_tva:
+                calculated['montant_tva'] = FieldValue(
+                    value=tva,
+                    confidence=0.80,
+                    extraction_method='calculation_from_ttc_rate'
+                )
+        
+        return calculated
+    
+    def _calculate_global_confidence(self, fields: Dict) -> float:
+        """Calcule la confiance globale"""
+        if not fields:
+            return 0.0
+        
+        confidences = [
+            field.confidence for field in fields.values() 
+            if hasattr(field, 'confidence')
+        ]
+        
+        if not confidences:
+            return 0.3
+        
+        return sum(confidences) / len(confidences)
+    
+    def _enrich_ticket_cb(self, text: str, fields: Dict, context_data: dict) -> Dict:
+        """
+        🎯 ENRICHISSEMENT SPÉCIAL TICKET (PHASE 3 — CLOUD RUN)
+
+        Objectif : enrichir EXCLUSIVEMENT les documents document_type == "TICKET" en retournant
+        des signaux fiables et compatibles avec le contrat de sortie existant, sans impact FACTURE/BL.
+
+        Ajouts (TICKET ONLY) :
+        - ticket_fournisseur_enseigne
+        - ticket_fournisseur_siret / ticket_fournisseur_siren
+        - ticket_mode_paiement / ticket_statut_paiement
+        - ticket_montant_cb
+        - ticket_total_ttc (robuste, priorise CB si > TTC OCR)
+        - ticket_date (ISO)
+
+        Champs existants (compat) remplis si manquants ou améliorables :
+        - fournisseur_siret, fournisseur, mode_paiement, statut_paiement, montant_encaisse, ttc/total_ttc, date_doc
+
+        Règles :
+        - Fail-safe : si non détectable → VIDE (ne pas inventer)
+        - TICKET ONLY : aucun traitement pour FACTURE / BON_LIVRAISON
+        """
+        from ocr_engine import FieldValue
+
+        enriched: Dict[str, FieldValue] = {}
+
+        # Texte disponible (peut être vide si OCR image)
+        text = text or ""
+        text_upper = text.upper()
+        text_lines = text.split('\n') if text else []
+
+        # Haystack robuste : texte + valeurs existantes (ex: client="Payé CB ...", "~ Siren ...")
+        def _fv(name: str) -> str:
+            try:
+                v = fields.get(name)
+                if v is None:
+                    return ""
+                return str(getattr(v, "value", "") or "")
+            except Exception:
+                return ""
+
+        hay = " ".join([
+            text,
+            _fv("client"),
+            _fv("reference"),
+            _fv("fournisseur"),
+            _fv("societe"),
+            _fv("fournisseur_siret"),
+            _fv("entreprise_source"),
+            _fv("mode_paiement"),
+            _fv("statut_paiement"),
+        ]).strip()
+        hay_upper = hay.upper()
+
+        logger.debug("🎯 TICKET enrichment (PHASE 3): starting analysis...")
+
+        # --------------------------
+        # A) Fournisseur / Enseigne
+        # --------------------------
+        BRAND_KEYWORDS = [
+            ("CARREFOUR", ["CARREFOUR"]),
+            ("TOTALENERGIES", ["TOTALENERGIES", "TOTAL ENERGIES", "TOTALÉNERGIES", "TOTAL"]),
+        ]
+        SIREN_TO_BRAND = {
+            "399515113": "CARREFOUR",
+            # Note: compléter au fur et à mesure avec des SIREN validés terrain
+            # "851729384": "TOTALENERGIES",
         }
 
+        # 1) SIRET 14 chiffres
+        siret_pattern = r'\b(\d{3}\s?\d{3}\s?\d{3}\s?\d{5})\b'
+        siret_matches = re.findall(siret_pattern, hay)
+        siret_clean = ""
+        if siret_matches:
+            siret_clean = siret_matches[0].replace(' ', '')
+            if len(siret_clean) == 14:
+                enriched['ticket_fournisseur_siret'] = FieldValue(
+                    value=siret_clean,
+                    confidence=0.86,
+                    extraction_method='ticket_pattern_siret_14digits',
+                    position=None,
+                    pattern=siret_pattern
+                )
+                # compat existant
+                enriched['fournisseur_siret'] = FieldValue(
+                    value=siret_clean,
+                    confidence=0.86,
+                    extraction_method='ticket_pattern_siret_14digits',
+                    position=None,
+                    pattern=siret_pattern
+                )
+                logger.info(f"✓ TICKET SIRET fournisseur détecté: {siret_clean}")
 
-if __name__ == "__main__":
-    # Test basique
-    print("BOX MAGIC OCR Engine - Ready")
-    print("Usage: from ocr_engine import OCREngine")
+        # 2) SIREN 9 chiffres (depuis SIRET ou chaîne "SIREN 399 515 113")
+        siren = ""
+        if siret_clean and len(siret_clean) == 14:
+            siren = siret_clean[:9]
+        else:
+            m_siren = re.search(r'\bSIREN\b\D*([0-9][0-9 \.-]{6,})', hay_upper)
+            if m_siren and m_siren.group(1):
+                siren = re.sub(r'\D', '', m_siren.group(1))[:9]
+            if not siren:
+                m9 = re.search(r'\b(\d{3})\s?(\d{3})\s?(\d{3})\b', hay)
+                if m9:
+                    siren = "".join(m9.groups())
+
+        if siren and len(siren) == 9:
+            enriched['ticket_fournisseur_siren'] = FieldValue(
+                value=siren,
+                confidence=0.82,
+                extraction_method='ticket_pattern_siren_9digits',
+                position=None,
+                pattern='SIREN_9digits'
+            )
+
+        # 3) Détection enseigne par header / mots-clés
+        enseigne = ""
+        # Header: premières lignes si disponibles
+        header = " ".join([ln.strip() for ln in (text_lines[:10] if text_lines else []) if ln.strip()])[:500].upper()
+        for brand, kws in BRAND_KEYWORDS:
+            if any(kw in header for kw in kws) or any(kw in hay_upper for kw in kws):
+                enseigne = brand
+                break
+
+        # 4) Fallback : mapping SIREN → enseigne connue
+        if not enseigne and siren and siren in SIREN_TO_BRAND:
+            enseigne = SIREN_TO_BRAND[siren]
+
+        # 5) Écriture fields ticket + compat fournisseur
+        if enseigne:
+            enriched['ticket_fournisseur_enseigne'] = FieldValue(
+                value=enseigne,
+                confidence=0.84,
+                extraction_method='ticket_brand_detection',
+                position=None,
+                pattern='|'.join([b for b, _ in BRAND_KEYWORDS])
+            )
+            # compat: fournisseur (et/ou societe)
+            enriched['fournisseur'] = FieldValue(
+                value=enseigne,
+                confidence=0.84,
+                extraction_method='ticket_brand_detection',
+                position=None,
+                pattern=None
+            )
+            enriched['societe'] = FieldValue(
+                value=enseigne,
+                confidence=0.84,
+                extraction_method='ticket_brand_detection',
+                position=None,
+                pattern=None
+            )
+            logger.info(f"✓ TICKET enseigne détectée: {enseigne}")
+
+        # --------------------------
+        # B) Paiement CB
+        # --------------------------
+        cb_keywords = ['CARTE BANCAIRE', 'PAIEMENT CARTE', 'CB', 'CARTE', 'VISA', 'MASTERCARD', 'AMEX']
+        cb_detected = any(k in hay_upper for k in cb_keywords)
+        if cb_detected:
+            enriched['ticket_mode_paiement'] = FieldValue(
+                value='CB',
+                confidence=0.82,
+                extraction_method='ticket_keyword_cb',
+                position=None,
+                pattern='|'.join(cb_keywords)
+            )
+            enriched['mode_paiement'] = FieldValue(
+                value='CB',
+                confidence=0.82,
+                extraction_method='ticket_keyword_cb',
+                position=None,
+                pattern=None
+            )
+
+        # Montant CB : chercher les montants quand CB détecté
+        montant_cb = 0.0
+        if cb_detected:
+            # 1) Montant sur la même ligne que CB/CARTE (si texte disponible)
+            if text_lines:
+                for line in text_lines:
+                    lu = line.upper()
+                    if any(k in lu for k in ['CB', 'CARTE', 'VISA', 'MASTERCARD']) and re.search(r'(\d+[,\.]\d{2})', line):
+                        amts = re.findall(r'(\d{1,6}[,\.]\d{2})', line)
+                        if amts:
+                            try:
+                                montant_cb = float(amts[-1].replace(',', '.'))
+                                break
+                            except Exception:
+                                pass
+            # 2) Fallback: extraire un montant depuis haystack (ex: "Payé cB ... 181,34")
+            if montant_cb <= 0:
+                amts = re.findall(r'(\d{1,6}[,\.]\d{2})', hay)
+                nums = []
+                for a in amts:
+                    try:
+                        nums.append(float(a.replace(',', '.')))
+                    except Exception:
+                        pass
+                if nums:
+                    montant_cb = max(nums)
+
+        if cb_detected and montant_cb > 0:
+            enriched['ticket_montant_cb'] = FieldValue(
+                value=montant_cb,
+                confidence=0.83,
+                extraction_method='ticket_amount_cb',
+                position=None,
+                pattern='amount_near_cb'
+            )
+            enriched['montant_encaisse'] = FieldValue(
+                value=str(montant_cb),
+                confidence=0.83,
+                extraction_method='ticket_amount_cb',
+                position=None,
+                pattern=None
+            )
+            enriched['ticket_statut_paiement'] = FieldValue(
+                value='PAYE',
+                confidence=0.86,
+                extraction_method='ticket_derived_from_cb_amount',
+                position=None,
+                pattern=None
+            )
+            enriched['statut_paiement'] = FieldValue(
+                value='PAYE',
+                confidence=0.86,
+                extraction_method='ticket_derived_from_cb_amount',
+                position=None,
+                pattern=None
+            )
+            logger.info(f"✓ TICKET paiement CB détecté: montant_cb={montant_cb}")
+
+        # --------------------------
+        # C) TTC robuste (priorité CB si > TTC OCR)
+        # --------------------------
+        def _to_float(v) -> float:
+            try:
+                if v is None:
+                    return 0.0
+                s = str(v).strip().replace(" ", "")
+                if not s:
+                    return 0.0
+                s = s.replace(",", ".")
+                return float(s)
+            except Exception:
+                return 0.0
+
+        ttc_ocr = 0.0
+        if fields.get("total_ttc") and getattr(fields.get("total_ttc"), "value", None) is not None:
+            ttc_ocr = _to_float(fields.get("total_ttc").value)
+        elif fields.get("ttc") and getattr(fields.get("ttc"), "value", None) is not None:
+            ttc_ocr = _to_float(fields.get("ttc").value)
+
+        ttc_robuste = ttc_ocr
+        if cb_detected and montant_cb > 0 and montant_cb > ttc_ocr:
+            ttc_robuste = montant_cb
+
+        if ttc_robuste > 0:
+            enriched['ticket_total_ttc'] = FieldValue(
+                value=ttc_robuste,
+                confidence=0.86 if ttc_robuste == montant_cb and montant_cb > 0 else 0.80,
+                extraction_method='ticket_ttc_robuste_cb_priority' if (ttc_robuste == montant_cb and montant_cb > 0) else 'ticket_ttc_from_ocr',
+                position=None,
+                pattern=None
+            )
+            # compat: pousser aussi dans ttc / total_ttc (peut être override côté caller si meilleur)
+            enriched['ttc'] = FieldValue(
+                value=ttc_robuste,
+                confidence=0.86 if ttc_robuste == montant_cb and montant_cb > 0 else 0.80,
+                extraction_method='ticket_ttc_robuste_cb_priority' if (ttc_robuste == montant_cb and montant_cb > 0) else 'ticket_ttc_from_ocr',
+                position=None,
+                pattern=None
+            )
+            enriched['total_ttc'] = FieldValue(
+                value=ttc_robuste,
+                confidence=0.86 if ttc_robuste == montant_cb and montant_cb > 0 else 0.80,
+                extraction_method='ticket_ttc_robuste_cb_priority' if (ttc_robuste == montant_cb and montant_cb > 0) else 'ticket_ttc_from_ocr',
+                position=None,
+                pattern=None
+            )
+
+        # --------------------------
+        # D) Date ISO (ticket_date + compat date_doc)
+        # --------------------------
+        # Préférer date_emission si déjà extraite, sinon chercher dans texte/haystack
+        date_iso = ""
+        raw_date = _fv("date_emission") or _fv("date_doc")
+        if raw_date:
+            date_iso = self._normalize_date(raw_date)
+        else:
+            # formats FR usuels
+            m = re.search(r'\b(\d{2})[\./-](\d{2})[\./-](\d{4})\b', hay)
+            if m:
+                date_iso = self._normalize_date(f"{m.group(1)}/{m.group(2)}/{m.group(3)}")
+            else:
+                m2 = re.search(r'\b(\d{4})[\./-](\d{2})[\./-](\d{2})\b', hay)
+                if m2:
+                    date_iso = self._normalize_date(f"{m2.group(1)}-{m2.group(2)}-{m2.group(3)}")
+
+        if date_iso:
+            enriched['ticket_date'] = FieldValue(
+                value=date_iso,
+                confidence=0.84,
+                extraction_method='ticket_date_iso',
+                position=None,
+                pattern='date_patterns'
+            )
+            enriched['date_doc'] = FieldValue(
+                value=date_iso,
+                confidence=0.84,
+                extraction_method='ticket_date_iso',
+                position=None,
+                pattern=None
+            )
+
+        logger.debug(f"🎯 TICKET enrichment (PHASE 3): extracted {len(enriched)} new fields")
+        return enriched
+    
+    def _needs_escalation(self, fields: Dict, global_confidence: float, document, context) -> bool:
+        """Détermine si le niveau 3 est nécessaire"""
+        # Seuil de confiance
+        if global_confidence < self.confidence_threshold:
+            logger.warning(f"Low confidence ({global_confidence:.2f}), may need Level 3")
+            return True
+        
+        # Pattern inconnu (détection future)
+        # Pour l'instant, Level 3 uniquement si très basse confiance
+        if global_confidence < 0.5:
+            return True
+        
+        return False
+
+def _postprocess_ticket_fields(data: dict, entreprise_source: str, full_text: str) -> None:
+    """Ticket-specific normalization:
+    - If OCR put a SIREN/SIRET into client, move it to fournisseur_siret.
+    - Ensure client = entreprise_source.
+    - Best-effort detect fournisseur name from top lines.
+    """
+    try:
+        ent = (entreprise_source or "").strip()
+        if ent:
+            data.setdefault("client", ent)
+
+        client_val = str(data.get("client") or "")
+        # Move siren/siret from client -> fournisseur_siret
+        if ("siren" in client_val.lower()) or re.search(r"\b\d{3}\s?\d{3}\s?\d{3}\b", client_val):
+            m = re.search(r"(\d{3})\s?(\d{3})\s?(\d{3})", client_val)
+            if m and not data.get("fournisseur_siret"):
+                data["fournisseur_siret"] = "".join(m.groups())
+            if ent:
+                data["client"] = ent
+            else:
+                data.pop("client", None)
+
+        # If fournisseur empty, guess from header
+        if not str(data.get("fournisseur") or "").strip():
+            lines = [ln.strip() for ln in (full_text or "").splitlines() if ln.strip()]
+            head = lines[:8]
+            best = ""
+            for ln in head:
+                # pick a line with letters and not just numbers
+                if len(re.findall(r"[A-Za-zÀ-ÿ]", ln)) >= 4 and len(ln) <= 60:
+                    best = ln
+                    break
+            if best:
+                data["fournisseur"] = best
+
+        # If societe is set but fournisseur not, mirror
+        if data.get("societe") and not data.get("fournisseur"):
+            data["fournisseur"] = data.get("societe")
+
+        # Ensure ticket_cb_detecte boolean exists
+        if "ticket_cb_detecte" not in data:
+            data["ticket_cb_detecte"] = False
+    except Exception:
+        pass
+
+
