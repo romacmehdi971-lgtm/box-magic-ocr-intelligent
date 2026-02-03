@@ -109,6 +109,35 @@ class OCRLevel2:
                         improved_fields.append(field_name)
                     logger.info(f"TICKET enrichment: {field_name} = {field_value.value} (confidence: {field_value.confidence:.2f})")
         
+            # Ticket-specific normalization (prevent SIREN/SIRET leaking into client)
+            try:
+                client_v = (fields.get("client").value if fields.get("client") else "") or ""
+                if "siren" in str(client_v).lower():
+                    # move to fournisseur_siret if empty
+                    if not fields.get("fournisseur_siret") or not fields.get("fournisseur_siret").value:
+                        fields["fournisseur_siret"] = FieldValue(
+                            value=str(client_v).replace("~", "").strip(),
+                            confidence=fields.get("client").confidence if fields.get("client") else 0.6,
+                            extraction_method="ticket_postprocess",
+                            position=None,
+                            pattern=None
+                        )
+                    # client should be the entreprise_source
+                    if context_data.get("entreprise_source"):
+                        fields["client"] = FieldValue(
+                            value=context_data.get("entreprise_source"),
+                            confidence=0.9,
+                            extraction_method="ticket_postprocess",
+                            position=None,
+                            pattern=None
+                        )
+                # ensure fournisseur is present (fallback to societe if available)
+                if (not fields.get("fournisseur") or not fields.get("fournisseur").value) and fields.get("societe") and fields.get("societe").value:
+                    fields["fournisseur"] = fields.get("societe")
+            except Exception:
+                pass
+
+
         # 5. Croisement et validation
         fields = self._cross_validate_fields(fields, context_data)
         
@@ -670,3 +699,50 @@ class OCRLevel2:
             return True
         
         return False
+
+def _postprocess_ticket_fields(data: dict, entreprise_source: str, full_text: str) -> None:
+    """Ticket-specific normalization:
+    - If OCR put a SIREN/SIRET into client, move it to fournisseur_siret.
+    - Ensure client = entreprise_source.
+    - Best-effort detect fournisseur name from top lines.
+    """
+    try:
+        ent = (entreprise_source or "").strip()
+        if ent:
+            data.setdefault("client", ent)
+
+        client_val = str(data.get("client") or "")
+        # Move siren/siret from client -> fournisseur_siret
+        if ("siren" in client_val.lower()) or re.search(r"\b\d{3}\s?\d{3}\s?\d{3}\b", client_val):
+            m = re.search(r"(\d{3})\s?(\d{3})\s?(\d{3})", client_val)
+            if m and not data.get("fournisseur_siret"):
+                data["fournisseur_siret"] = "".join(m.groups())
+            if ent:
+                data["client"] = ent
+            else:
+                data.pop("client", None)
+
+        # If fournisseur empty, guess from header
+        if not str(data.get("fournisseur") or "").strip():
+            lines = [ln.strip() for ln in (full_text or "").splitlines() if ln.strip()]
+            head = lines[:8]
+            best = ""
+            for ln in head:
+                # pick a line with letters and not just numbers
+                if len(re.findall(r"[A-Za-zÀ-ÿ]", ln)) >= 4 and len(ln) <= 60:
+                    best = ln
+                    break
+            if best:
+                data["fournisseur"] = best
+
+        # If societe is set but fournisseur not, mirror
+        if data.get("societe") and not data.get("fournisseur"):
+            data["fournisseur"] = data.get("societe")
+
+        # Ensure ticket_cb_detecte boolean exists
+        if "ticket_cb_detecte" not in data:
+            data["ticket_cb_detecte"] = False
+    except Exception:
+        pass
+
+
