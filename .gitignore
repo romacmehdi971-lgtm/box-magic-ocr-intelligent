@@ -66,3 +66,8 @@ tests/fixtures/*.png
 tmp/
 temp/
 *.tmp
+
+# === SECRETS (NE JAMAIS COMMIT) ===
+*.json
+**/*.json
+config/google_credentials.json
