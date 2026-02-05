@@ -1,3 +1,13 @@
+import os
+
+# =============================
+# BOX MAGIC — GOVERNANCE GUARD
+# Cloud Run MUST be READ-ONLY.
+# Any call to this connector becomes a NO-OP.
+# Default = READ_ONLY enabled.
+# =============================
+OCR_READ_ONLY = os.getenv('OCR_READ_ONLY', 'true').strip().lower() in ('1','true','yes','y','on')
+
 """
 Connecteur Google Sheets
 
@@ -23,6 +33,13 @@ class GoogleSheetsConnector:
     """
     
     def __init__(self, credentials_path: Optional[str] = None, spreadsheet_id: Optional[str] = None):
+        self.logger = logging.getLogger('OCREngine.Sheets')
+        if OCR_READ_ONLY:
+            self.logger.warning('[WRITE_DISABLED] GoogleSheetsConnector init skipped (Cloud Run read-only).')
+            self.enabled = False
+            return
+        # Write mode is intentionally disabled by governance.
+        raise RuntimeError('Cloud Run write mode is disabled by governance (OCR_READ_ONLY).')
         """
         Initialise le connecteur Google Sheets
         
@@ -109,46 +126,13 @@ class GoogleSheetsConnector:
             logger.error(f"Failed to append row to {sheet_name}: {e}")
             return False
     
-    def write_to_index_global(self, ocr_result: 'OCRResult') -> bool:
-        """
-        Écrit dans la feuille INDEX GLOBAL
-        
-        Colonnes :
-        - ID Document
-        - Type
-        - Date traitement
-        - Entreprise source
-        - Client/Fournisseur
-        - Montant TTC
-        - Statut OCR (niveau)
-        - Confiance
-        """
-        client_fournisseur = ''
-        if 'client' in ocr_result.fields:
-            client_fournisseur = ocr_result.fields['client'].value
-        elif 'fournisseur' in ocr_result.fields:
-            client_fournisseur = ocr_result.fields['fournisseur'].value
-        
-        total_ttc = ocr_result.fields.get('total_ttc')
-        total_ttc_value = total_ttc.value if total_ttc else None
-        
-        row = [
-            ocr_result.document_id,
-            ocr_result.document_type,
-            ocr_result.processing_date.strftime("%Y-%m-%d %H:%M:%S"),
-            ocr_result.entreprise_source,
-            client_fournisseur,
-            total_ttc_value,
-            f"OCR Level {ocr_result.level}",
-            f"{ocr_result.confidence:.2%}"
-        ]
-        
-        success = self._append_row('INDEX GLOBAL', row)
-        
-        if success:
-            logger.info(f"Written to INDEX GLOBAL: {ocr_result.document_id}")
-        
-        return success
+    
+        """(GOV) WRITE_DISABLED — Cloud Run read-only."""
+    
+        self.logger.warning('[WRITE_DISABLED] write_to_index_global skipped (Cloud Run read-only).')
+    
+        return False
+
     
     def write_to_crm(self, ocr_result: 'OCRResult') -> bool:
         """
