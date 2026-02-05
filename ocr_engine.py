@@ -23,6 +23,15 @@ from utils.validators import validate_ocr_result
 from utils.document_types import DocumentType
 from utils.type_detector import detect_document_type, get_document_type_confidence
 
+# =============================
+# BOX MAGIC — GOVERNANCE GUARD
+# Cloud Run MUST be READ-ONLY.
+# OCR + JSON only. No Sheets/CRM/Drive writes.
+# Default = READ_ONLY enabled.
+# =============================
+OCR_READ_ONLY = os.getenv('OCR_READ_ONLY', 'true').strip().lower() in ('1','true','yes','y','on')
+
+
 
 @dataclass
 class FieldValue:
@@ -119,21 +128,13 @@ class OCREngine:
         
         return config
     
-    def _init_sheets_connector(self) -> Optional[GoogleSheetsConnector]:
-        """Initialise le connecteur Google Sheets"""
-        try:
-            sheets_config = self.config.get('google_sheets', {})
-            if not sheets_config.get('enabled', True):
-                self.logger.warning("Google Sheets connector disabled in config")
-                return None
-            
-            return GoogleSheetsConnector(
-                credentials_path=sheets_config.get('credentials_path'),
-                spreadsheet_id=sheets_config.get('spreadsheet_id')
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to initialize Google Sheets connector: {e}")
-            return None
+    
+        """(GOV) Cloud Run is READ-ONLY — never initialize Sheets connector."""
+    
+        self.logger.info('[GOV] OCR_READ_ONLY=TRUE — Sheets connector initialization skipped (Cloud Run read-only).')
+    
+        return None
+
     
     def process_document(self, 
                         file_path: str, 
@@ -360,32 +361,13 @@ class OCREngine:
             options=options
         )
     
-    def _write_to_sheets(self, result: OCRResult):
-        """Écrit les résultats dans Google Sheets"""
-        try:
-            # INDEX GLOBAL
-            self.sheets_connector.write_to_index_global(result)
-            
-            # CRM (si nouveau client)
-            if 'client' in result.fields:
-                self.sheets_connector.write_to_crm(result)
-            
-            # COMPTABILITÉ
-            if result.document_type in ['facture', 'devis', 'ticket', 'recu']:
-                self.sheets_connector.write_to_comptabilite(result)
-            
-            # LOG SYSTEM
-            for log_msg in result.logs:
-                self.sheets_connector.write_to_log_system({
-                    'timestamp': result.processing_date.isoformat(),
-                    'level': 'INFO',
-                    'document_id': result.document_id,
-                    'ocr_level': result.level,
-                    'message': log_msg
-                })
-        
-        except Exception as e:
-            self.logger.error(f"Failed to write to Google Sheets: {e}")
+    
+        """(GOV) Cloud Run is READ-ONLY — never initialize Sheets connector."""
+    
+        self.logger.info('[GOV] OCR_READ_ONLY=TRUE — Sheets connector initialization skipped (Cloud Run read-only).')
+    
+        return None
+
     
     def _log_final_result(self, result: OCRResult):
         """Log du résultat final"""
