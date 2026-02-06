@@ -57,6 +57,9 @@ class OCRResult:
     corrections: Optional[List[str]] = None
     rule_created: Optional[dict] = None
     logs: List[str] = field(default_factory=list)
+    
+    # [NEW] MIRROR MODE - Texte OCR brut complet
+    ocr_text_raw: str = ""
 
     def to_dict(self):
         """Convertit en dictionnaire"""
@@ -160,6 +163,10 @@ class OCREngine:
             document = self.document_loader.load(file_path)
             self.logger.info(f"[{document_id}] Document loaded successfully")
             
+            # [MIRROR MODE] Stocker texte OCR brut complet
+            ocr_text_raw = document.get_text()
+            self.logger.info(f"[{document_id}] OCR text length: {len(ocr_text_raw)} characters")
+            
             # 1.1 Détection type de document (basée sur le texte extrait)
             detected_doc_type = detect_document_type(document.get_text())
             type_confidence = get_document_type_confidence(document.get_text(), detected_doc_type)
@@ -198,6 +205,9 @@ class OCREngine:
                 # Remplacer le document_type par celui détecté (plus fiable que OCR1)
                 result.document_type = detected_doc_type
             
+            # [MIRROR MODE] Ajouter texte OCR brut au résultat
+            result.ocr_text_raw = ocr_text_raw
+            
             # 5.1 Ajouter métadonnées OCR au résultat
             result.logs.append(f"OCR_MODE={ocr_mode}")
             result.logs.append(f"PDF_TEXT_DETECTED={pdf_text_detected}")
@@ -233,6 +243,13 @@ class OCREngine:
         
         result = self.ocr_level1.process(document, context)
         result.document_id = document_id
+        
+        # [MIROIR] Remplacer entreprise_source par le nom réel extrait si disponible
+        if 'emetteur_nom' in result.fields:
+            nom_reel = result.fields['emetteur_nom'].value
+            if nom_reel and nom_reel != "UNKNOWN":
+                result.entreprise_source = nom_reel
+                self.logger.info(f"[{document_id}] Emetteur réel détecté: {nom_reel}")
         
         self.logger.info(f"[{document_id}] OCR Level 1 completed (confidence: {result.confidence:.2f})")
         log_ocr_decision(self.logger, document_id, 1, 

@@ -114,6 +114,7 @@ class OCRLevel1:
         from ocr_engine import OCRResult, FieldValue
         
         text = document.get_text()
+        text_original = text  # Garder l'original BRUT pour le JSON final
         
         # [FIX] Normaliser espaces (PyPDF2 peut ajouter espaces entre lettres)
         # "F a c t u r e" → "Facture"
@@ -123,6 +124,14 @@ class OCRLevel1:
         text_lower = text.lower()
         
         fields = {}
+        
+        # [MIROIR] 0. AJOUTER TEXTE OCR BRUT COMPLET (PRIORITAIRE)
+        fields['texte_ocr_brut'] = FieldValue(
+            value=text_original,
+            confidence=1.0,
+            extraction_method='document_text',
+            pattern='raw_text'
+        )
         
         # [FIX] 1. Type document déjà détecté par engine (type_detector.py)
         # On ne redétecte pas ici pour éviter les conflits
@@ -135,6 +144,11 @@ class OCRLevel1:
         if date_field:
             fields['date_emission'] = date_field
         
+        # [MIROIR] 2b. Extraction date échéance
+        date_echeance = self._extract_date_echeance(text, text_lower)
+        if date_echeance:
+            fields['date_echeance'] = date_echeance
+        
         # 3. Extraction montants
         montants = self._extract_amounts(text, text_lower)
         fields.update(montants)
@@ -144,19 +158,43 @@ class OCRLevel1:
         if tva:
             fields['tva_rate'] = tva
         
-        # 5. Extraction émetteur/destinataire
-        parties = self._extract_parties(text, text_lower, context)
-        fields.update(parties)
+        # [MIROIR] 5. Extraction COMPLÈTE entreprise émettrice (PRIORITAIRE)
+        # IMPORTANT : utiliser text_original (avec espaces PyPDF2) pour détecter les lignes
+        emetteur_full = self._extract_emetteur_complet(text_original, text_lower, context)
+        fields.update(emetteur_full)
         
-        # 6. Extraction référence document
+        # [MIROIR] 6. Extraction COMPLÈTE client/destinataire
+        client_full = self._extract_client_complet(text, text_lower)
+        fields.update(client_full)
+        
+        # 7. Extraction référence document
         reference = self._extract_reference(text, doc_type)
         if reference:
-            fields['reference'] = reference
+            fields['numero_facture'] = reference  # Renommer pour clarté
         
-        # 7. Calcul confiance globale
+        # [MIROIR] 8. Extraction SIRET
+        siret = self._extract_siret(text)
+        if siret:
+            fields['siret'] = siret
+        
+        # [MIROIR] 9. Extraction TVA intracommunautaire
+        num_tva = self._extract_numero_tva(text)
+        if num_tva:
+            fields['numero_tva_intracommunautaire'] = num_tva
+        
+        # [MIROIR] 10. Extraction adresses
+        adresses = self._extract_adresses(text)
+        fields.update(adresses)
+        
+        # [MIROIR] 11. Extraction devise
+        devise = self._extract_devise(text)
+        if devise:
+            fields['devise'] = devise
+        
+        # 12. Calcul confiance globale
         global_confidence = self._calculate_global_confidence(fields)
         
-        # 8. Décision niveau suivant
+        # 13. Décision niveau suivant
         needs_level2 = self._needs_escalation(fields, global_confidence)
         
         result = OCRResult(
@@ -477,3 +515,204 @@ class OCRLevel1:
         low_confidence = global_confidence < self.confidence_threshold
         
         return missing_critical or low_confidence
+    
+    # ===== NOUVELLES MÉTHODES D'EXTRACTION COMPLÈTE (MIROIR) =====
+    
+    def _extract_date_echeance(self, text: str, text_lower: str) -> Optional['FieldValue']:
+        """Extrait la date d'échéance"""
+        from ocr_engine import FieldValue
+        
+        patterns = [
+            r'(?:échéance|due\s+date|payment\s+due)[\s:]+' + p for p in self.DATE_PATTERNS
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            if matches:
+                match = matches[0]
+                if len(match) == 3:
+                    if match[0].isdigit() and match[1].isdigit():
+                        if len(match[0]) == 4:  # YYYY-MM-DD
+                            date_str = f"{match[0]}-{match[1]}-{match[2]}"
+                        else:  # DD/MM/YYYY
+                            date_str = f"{match[2]}-{match[1]}-{match[0]}"
+                    else:
+                        # Format avec mois en lettres
+                        mois_map = {
+                            'janvier': '01', 'février': '02', 'mars': '03',
+                            'avril': '04', 'mai': '05', 'juin': '06',
+                            'juillet': '07', 'août': '08', 'septembre': '09',
+                            'octobre': '10', 'novembre': '11', 'décembre': '12'
+                        }
+                        mois = mois_map.get(match[1].lower(), '01')
+                        date_str = f"{match[2]}-{mois}-{match[0]}"
+                    
+                    return FieldValue(
+                        value=date_str,
+                        confidence=0.85,
+                        extraction_method='regex',
+                        pattern=pattern
+                    )
+        
+        return None
+    
+    def _extract_emetteur_complet(self, text: str, text_lower: str, context) -> Dict[str, 'FieldValue']:
+        """Extrait TOUTES les infos de l'émetteur (nom, adresse, SIRET, etc.)"""
+        from ocr_engine import FieldValue
+        
+        result = {}
+        lines = text.split('\n')
+        
+        # Chercher le nom de l'entreprise émettrice RÉEL dans le texte
+        # Strategy: chercher dans les 20 premières lignes une ligne ISOLÉE avec PTE/LTD/SARL/etc.
+        for i, line in enumerate(lines[:20]):
+            line_clean = line.strip()
+            # Retirer caractères nulls
+            line_clean = re.sub(r'[\x00-\x1F]', '', line_clean)
+            line_clean = re.sub(r'\s+', ' ', line_clean)  # Normaliser espaces multiples
+            # [FIX PyPDF2] Retirer espaces ENTRE lettres ("M a i n F u n c" → "MainFunc")
+            line_clean = re.sub(r'(?<=[a-zA-Z])\s(?=[a-zA-Z])', '', line_clean)
+            
+            # Pattern: ligne contenant des suffixes d'entreprise ET moins de 100 caractères (pour éviter les paragraphes)
+            if (re.search(r'\b(PTE\.?|LTD\.?|SARL|SAS|SA|Inc\.?|LLC|Corp\.?|Company|GmbH)\b', line_clean, re.IGNORECASE) 
+                and len(line_clean) < 100  # Ligne courte = nom d'entreprise
+                and len(line_clean) > 5):  # Au moins 5 caractères
+                
+                result['emetteur_nom'] = FieldValue(
+                    value=line_clean,
+                    confidence=0.90,
+                    extraction_method='line_pattern_match',
+                    pattern='company_suffix_in_line'
+                )
+                break
+        
+        # Si pas trouvé, utiliser l'entreprise source du contexte (mais moins de confiance)
+        if 'emetteur_nom' not in result and context.source_entreprise != "UNKNOWN":
+            result['emetteur_nom'] = FieldValue(
+                value=context.source_entreprise,
+                confidence=0.60,
+                extraction_method='context_fallback',
+                pattern='source_entreprise'
+            )
+        
+        return result
+    
+    def _extract_client_complet(self, text: str, text_lower: str) -> Dict[str, 'FieldValue']:
+        """Extrait TOUTES les infos du client"""
+        from ocr_engine import FieldValue
+        
+        result = {}
+        
+        # Patterns client
+        client_patterns = [
+            r'(?:Client|À|To|Bill\s+to|Facturé\s+à)[\s:]+([A-Z][A-Za-z\s-]+)',
+            r'(?:Destinataire)[\s:]+([A-Z][A-Za-z\s-]+)',
+        ]
+        
+        for pattern in client_patterns:
+            match = re.search(pattern, text, re.MULTILINE | re.IGNORECASE)
+            if match:
+                nom_client = match.group(1).strip()
+                result['client_nom'] = FieldValue(
+                    value=nom_client,
+                    confidence=0.85,
+                    extraction_method='regex_pattern',
+                    pattern=pattern
+                )
+                break
+        
+        return result
+    
+    def _extract_siret(self, text: str) -> Optional['FieldValue']:
+        """Extrait le SIRET"""
+        from ocr_engine import FieldValue
+        
+        pattern = r'(?:SIRET|Siret)[\s:]+([\d\s]{14,})'
+        match = re.search(pattern, text, re.IGNORECASE)
+        
+        if match:
+            siret = re.sub(r'\s', '', match.group(1))[:14]  # Retirer espaces, garder 14 chiffres
+            return FieldValue(
+                value=siret,
+                confidence=0.95,
+                extraction_method='regex',
+                pattern=pattern
+            )
+        
+        return None
+    
+    def _extract_numero_tva(self, text: str) -> Optional['FieldValue']:
+        """Extrait le numéro de TVA intracommunautaire"""
+        from ocr_engine import FieldValue
+        
+        patterns = [
+            r'(?:TVA|VAT|N°\s*TVA)[\s:]+([A-Z]{2}\d+)',
+            r'(?:EU\s*OSS\s*VAT|EU\s*VAT)[\s:]+([A-Z]{2}\d+)',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                return FieldValue(
+                    value=match.group(1),
+                    confidence=0.90,
+                    extraction_method='regex',
+                    pattern=pattern
+                )
+        
+        return None
+    
+    def _extract_adresses(self, text: str) -> Dict[str, 'FieldValue']:
+        """Extrait les adresses (émetteur et client)"""
+        from ocr_engine import FieldValue
+        
+        result = {}
+        
+        # Pattern adresse générique : numéro + rue/road/avenue
+        adresse_pattern = r'(\d+[,\s]+[A-Z][A-Za-z\s]+(?:Street|Road|Avenue|Rue|Boulevard|Rd|Ave)[^,\n]*(?:,\s*[A-Z\s]+)?(?:,\s*[A-Z]{2}\s*\d+)?)'
+        
+        matches = re.findall(adresse_pattern, text, re.IGNORECASE)
+        
+        if matches:
+            # Première adresse = émetteur
+            result['adresse_emetteur'] = FieldValue(
+                value=matches[0].strip(),
+                confidence=0.75,
+                extraction_method='regex',
+                pattern=adresse_pattern
+            )
+            
+            # Deuxième adresse = client (si présente)
+            if len(matches) > 1:
+                result['adresse_client'] = FieldValue(
+                    value=matches[1].strip(),
+                    confidence=0.70,
+                    extraction_method='regex',
+                    pattern=adresse_pattern
+                )
+        
+        return result
+    
+    def _extract_devise(self, text: str) -> Optional['FieldValue']:
+        """Extrait la devise utilisée"""
+        from ocr_engine import FieldValue
+        
+        devise_map = {
+            '€': 'EUR',
+            'EUR': 'EUR',
+            '$': 'USD',
+            'USD': 'USD',
+            '£': 'GBP',
+            'GBP': 'GBP',
+        }
+        
+        for symbole, code in devise_map.items():
+            if symbole in text or code in text:
+                return FieldValue(
+                    value=code,
+                    confidence=0.90,
+                    extraction_method='symbol_detection',
+                    pattern=symbole
+                )
+        
+        return None

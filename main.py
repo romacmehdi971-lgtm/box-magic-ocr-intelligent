@@ -154,12 +154,17 @@ async def process_ocr(
         )
         
         # Convert result to dict
+        # [MIRROR MODE] Ajouter texte OCR brut complet
         response = {
             "document_id": result.document_id,
             "document_type": result.document_type,
             "level": result.level,
             "confidence": result.confidence,
             "entreprise_source": result.entreprise_source,
+            
+            # [NEW] TEXTE OCR BRUT COMPLET
+            "ocr_text_raw": getattr(result, 'ocr_text_raw', ''),
+            
             "fields": {
                 name: {
                     "value": field.value,
