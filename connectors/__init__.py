@@ -1,6 +1,6 @@
 """Connectors for external services"""
 
-from .google_sheets import GoogleSheetsConnector
+# [GOV] Cloud Run READ-ONLY: GoogleSheetsConnector removed
 from .document_loader import DocumentLoader
 
-__all__ = ['GoogleSheetsConnector', 'DocumentLoader']
+__all__ = ['DocumentLoader']

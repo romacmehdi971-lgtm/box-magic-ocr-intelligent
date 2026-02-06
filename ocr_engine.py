@@ -16,7 +16,6 @@ from levels.ocr_level1 import OCRLevel1
 from levels.ocr_level2 import OCRLevel2
 from levels.ocr_level3 import OCRLevel3
 from memory.ai_memory import AIMemory
-from connectors.google_sheets import GoogleSheetsConnector
 from connectors.document_loader import DocumentLoader
 from utils.logger import setup_logger, log_ocr_decision
 from utils.validators import validate_ocr_result
@@ -107,9 +106,15 @@ class OCREngine:
         self.memory = AIMemory(memory_path)
         
         # Initialisation des connecteurs
-        self.sheets_connector = self._init_sheets_connector()
+        # [GOV] Cloud Run READ-ONLY: Sheets connector permanently removed
+        self.sheets_connector = None
         self.document_loader = DocumentLoader(self.config)
         
+        # Log governance enforcement
+        self.logger.info("=" * 80)
+        self.logger.info("[GOV] READ_ONLY_ENFORCED=TRUE (no sheets/crm code present)")
+        self.logger.info("[GOV] Cloud Run compute-only mode: returns JSON, no writes")
+        self.logger.info("=" * 80)
         self.logger.info("OCR Engine initialized successfully")
     
     def _load_config(self, config_path: str) -> dict:
@@ -127,14 +132,6 @@ class OCREngine:
                 config['entreprises'] = yaml.safe_load(f)
         
         return config
-    
-    
-        """(GOV) Cloud Run is READ-ONLY — never initialize Sheets connector."""
-    
-        self.logger.info('[GOV] OCR_READ_ONLY=TRUE — Sheets connector initialization skipped (Cloud Run read-only).')
-    
-        return None
-
     
     def process_document(self, 
                         file_path: str, 
@@ -206,10 +203,9 @@ class OCREngine:
             if not validation_result.is_valid:
                 self.logger.warning(f"[{document_id}] Validation warnings: {validation_result.warnings}")
             
-            # 7. Écriture dans Google Sheets
-            if self.sheets_connector:
-                self._write_to_sheets(result)
-                self.logger.info(f"[{document_id}] Results written to Google Sheets")
+            # 7. [GOV] NO SHEETS WRITE - Cloud Run READ-ONLY
+            # Results returned as JSON only - Apps Script handles all writes
+            self.logger.debug(f"[{document_id}] JSON result ready (no sheets write in Cloud Run)")
             
             # 8. Log final
             self._log_final_result(result)
@@ -218,16 +214,8 @@ class OCREngine:
             
         except Exception as e:
             self.logger.error(f"[{document_id}] OCR processing failed: {e}", exc_info=True)
-            # Log dans Google Sheets
-            if self.sheets_connector:
-                self.sheets_connector.write_to_log_system({
-                    'timestamp': datetime.now().isoformat(),
-                    'level': 'ERROR',
-                    'document_id': document_id,
-                    'ocr_level': 0,
-                    'message': f"OCR processing failed: {str(e)}",
-                    'errors': str(e)
-                })
+            # [GOV] NO SHEETS LOG WRITE - Cloud Run READ-ONLY
+            # Error logged locally only, Apps Script handles persistence
             raise
     
     def _progressive_ocr(self, document, context: ProcessingContext, document_id: str) -> OCRResult:
@@ -361,14 +349,6 @@ class OCREngine:
             options=options
         )
     
-    
-        """(GOV) Cloud Run is READ-ONLY — never initialize Sheets connector."""
-    
-        self.logger.info('[GOV] OCR_READ_ONLY=TRUE — Sheets connector initialization skipped (Cloud Run read-only).')
-    
-        return None
-
-    
     def _log_final_result(self, result: OCRResult):
         """Log du résultat final"""
         self.logger.info(f"[{result.document_id}] === FINAL RESULT ===")
@@ -395,7 +375,7 @@ class OCREngine:
             'config': {
                 'entreprises_count': len(self.config.get('entreprises', {}).get('entreprises', [])),
                 'log_level': self.config.get('log_level', 'INFO'),
-                'sheets_enabled': self.config.get('google_sheets', {}).get('enabled', False)
+                'sheets_enabled': False  # [GOV] Always False in Cloud Run READ-ONLY mode
             }
         }
 
