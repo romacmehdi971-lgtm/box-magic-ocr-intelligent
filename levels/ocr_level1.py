@@ -233,9 +233,47 @@ class OCRLevel1:
         return best_type, confidence
     
     def _extract_date(self, text: str, text_lower: str) -> Optional['FieldValue']:
-        """Extrait la date d'émission"""
+        """Extrait la date d'émission - MÉTHODE ROBUSTE AVEC CONTEXTE"""
         from ocr_engine import FieldValue
         
+        # PATTERNS AVEC CONTEXTE (prioritaires)
+        date_context_patterns = [
+            r"(?:Date\s*d[''']?émission|Date\s*de\s*facture|Invoice\s*date|Date)\s*:?\s*(\d{1,2})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{4})",
+            r"(?:Date\s*d[''']?émission|Date\s*de\s*facture|Invoice\s*date|Date)\s*:?\s*(\d{1,2})\s+(janvier|février|f[ée]vrier|mars|avril|mai|juin|juillet|ao[ûu]t|septembre|octobre|novembre|d[ée]cembre)\s+(\d{4})",
+            r"(?:Date\s*d[''']?émission|Date\s*de\s*facture|Invoice\s*date|Date)\s*:?\s*(\d{4})\s*[/-]\s*(\d{1,2})\s*[/-]\s*(\d{1,2})",
+        ]
+        
+        for pattern in date_context_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                groups = match.groups()
+                # Parser selon format
+                if len(groups) == 3:
+                    if groups[0].isdigit() and groups[1].isdigit() and groups[2].isdigit():
+                        # Format numérique
+                        if len(groups[0]) == 4:  # YYYY-MM-DD
+                            date_str = f"{groups[0]}-{groups[1].zfill(2)}-{groups[2].zfill(2)}"
+                        else:  # DD/MM/YYYY ou DD-MM-YYYY
+                            date_str = f"{groups[2]}-{groups[1].zfill(2)}-{groups[0].zfill(2)}"
+                    else:
+                        # Format avec mois en lettres
+                        mois_map = {
+                            'janvier': '01', 'février': '02', 'fevrier': '02', 'mars': '03',
+                            'avril': '04', 'mai': '05', 'juin': '06',
+                            'juillet': '07', 'août': '08', 'aout': '08', 'septembre': '09',
+                            'octobre': '10', 'novembre': '11', 'décembre': '12', 'decembre': '12'
+                        }
+                        mois = mois_map.get(groups[1].lower(), '01')
+                        date_str = f"{groups[2]}-{mois}-{groups[0].zfill(2)}"
+                    
+                    return FieldValue(
+                        value=date_str,
+                        confidence=0.95,
+                        extraction_method='regex_with_context',
+                        pattern='date_emission_context'
+                    )
+        
+        # FALLBACK: patterns génériques (confiance plus faible)
         for pattern in self.DATE_PATTERNS:
             matches = re.findall(pattern, text, re.IGNORECASE)
             if matches:
@@ -263,7 +301,7 @@ class OCRLevel1:
                     
                     return FieldValue(
                         value=date_str,
-                        confidence=0.9,
+                        confidence=0.75,
                         extraction_method='regex',
                         pattern=pattern
                     )
@@ -271,49 +309,81 @@ class OCRLevel1:
         return None
     
     def _extract_amounts(self, text: str, text_lower: str) -> Dict[str, 'FieldValue']:
-        """Extrait les montants HT, TVA, TTC"""
+        """Extrait les montants HT, TVA, TTC - MÉTHODE ROBUSTE AVEC REGEX"""
         from ocr_engine import FieldValue
         
         amounts = {}
         
-        # Recherche montants avec contexte
-        lines = text.split('\n')
+        # ========================================================================
+        # PATTERNS REGEX POUR MONTANTS (TOUS FORMATS)
+        # ========================================================================
         
-        for i, line in enumerate(lines):
-            line_lower = line.lower()
-            
-            # Total TTC
-            if any(kw in line_lower for kw in ['total ttc', 'total', 'net à payer', 'amount due']):
-                amount = self._extract_amount_from_line(line)
-                if amount:
+        # Pattern montant : 140.23 ou 140,23 ou 24.99 ou 24,99 (avec espaces possibles)
+        amount_pattern = r'([\d\s]+)[,.]([\d]{2})'
+        
+        # PATTERN 1: Total TTC / Total / Montant dû / Amount due
+        ttc_patterns = [
+            r'(?:Total\s*TTC|TOTAL\s*TTC|Total|TOTAL|Montant\s*d[ûu]|Amount\s*due|Net\s*[àa]\s*payer)\s*:?\s*' + amount_pattern,
+            r'(?:TTC|TOTAL)\s*:?\s*' + amount_pattern,
+            r'MONTANT\s*=?\s*' + amount_pattern,  # Pour Carrefour
+        ]
+        
+        for pattern in ttc_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match and 'total_ttc' not in amounts:
+                montant_str = match.group(1).replace(' ', '') + '.' + match.group(2)
+                try:
                     amounts['total_ttc'] = FieldValue(
-                        value=amount,
+                        value=float(montant_str),
                         confidence=0.95,
-                        extraction_method='context_keyword',
-                        pattern='total_ttc'
+                        extraction_method='regex_pattern',
+                        pattern='ttc_pattern'
                     )
-            
-            # Total HT
-            elif any(kw in line_lower for kw in ['total ht', 'subtotal', 'hors taxe']):
-                amount = self._extract_amount_from_line(line)
-                if amount:
+                    break
+                except:
+                    pass
+        
+        # PATTERN 2: Total HT / Subtotal / Hors taxe
+        ht_patterns = [
+            r'(?:Total\s*HT|TOTAL\s*HT|Total\s*hors\s*taxe[s]?|Subtotal|Sous-total)\s*:?\s*' + amount_pattern,
+            r'(?:HT|Hors\s*taxe)\s*:?\s*' + amount_pattern,
+        ]
+        
+        for pattern in ht_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match and 'total_ht' not in amounts:
+                montant_str = match.group(1).replace(' ', '') + '.' + match.group(2)
+                try:
                     amounts['total_ht'] = FieldValue(
-                        value=amount,
-                        confidence=0.9,
-                        extraction_method='context_keyword',
-                        pattern='total_ht'
+                        value=float(montant_str),
+                        confidence=0.90,
+                        extraction_method='regex_pattern',
+                        pattern='ht_pattern'
                     )
-            
-            # Montant TVA
-            elif any(kw in line_lower for kw in ['montant tva', 'tva', 'vat amount']):
-                amount = self._extract_amount_from_line(line)
-                if amount:
+                    break
+                except:
+                    pass
+        
+        # PATTERN 3: TVA / Montant TVA / VAT Amount
+        tva_patterns = [
+            r'(?:Montant\s*TVA|TVA|VAT\s*Amount)\s*:?\s*' + amount_pattern,
+            r'(?:TVA|VAT)\s*:?\s*' + amount_pattern,
+        ]
+        
+        for pattern in tva_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match and 'montant_tva' not in amounts:
+                montant_str = match.group(1).replace(' ', '') + '.' + match.group(2)
+                try:
                     amounts['montant_tva'] = FieldValue(
-                        value=amount,
+                        value=float(montant_str),
                         confidence=0.85,
-                        extraction_method='context_keyword',
-                        pattern='montant_tva'
+                        extraction_method='regex_pattern',
+                        pattern='tva_pattern'
                     )
+                    break
+                except:
+                    pass
         
         # Vérification cohérence HT + TVA = TTC
         if 'total_ht' in amounts and 'montant_tva' in amounts and 'total_ttc' not in amounts:
@@ -466,44 +536,39 @@ class OCRLevel1:
         return ' '.join(name_lines) if name_lines else 'Unknown'
     
     def _extract_reference(self, text: str, doc_type: str) -> Optional['FieldValue']:
-        """Extrait la référence du document - MÉTHODE ROBUSTE"""
+        """Extrait la référence du document - MÉTHODE ROBUSTE AVEC NETTOYAGE"""
         from ocr_engine import FieldValue
+        
+        # [FIX] Nettoyer le texte : retirer espaces entre lettres/chiffres
+        # "N u m é r o  d e  f a c t u r e N 8 W Y" -> "Numéro de facture N8WY"
+        text_clean = re.sub(r'(?<=[A-Za-z0-9])\s+(?=[A-Za-z0-9])', '', text)
         
         # PATTERNS GÉNÉRIQUES + SPÉCIFIQUES PAR TYPE
         patterns_all = [
             # Patterns avec label explicite (haute confiance)
-            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]+)', 0.95, 'facture_label'),
-            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_]+)', 0.95, 'invoice_number'),
-            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'facture_prefix'),
-            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'facture_prefix'),
+            (r'N[°oúu]m[eé]ro\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'facture_label_fr'),
+            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'invoice_number'),
+            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'facture_label'),
+            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.90, 'facture_prefix'),
+            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.90, 'facture_prefix'),
             
             # Patterns pour tickets
-            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'ticket_label'),
-            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.85, 'ticket_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]{3,20})', 0.90, 'ticket_label'),
+            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,20})', 0.85, 'ticket_prefix'),
             
             # Patterns pour devis
-            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'devis_label'),
-            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.85, 'devis_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]{3,20})', 0.90, 'devis_label'),
+            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,20})', 0.85, 'devis_prefix'),
             
             # Pattern générique: N° suivi de code alphanumérique (>= 5 caractères)
-            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,})', 0.70, 'generic_number'),
+            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,20})', 0.70, 'generic_number'),
         ]
         
-        # Essayer tous les patterns
+        # Essayer tous les patterns sur le texte nettoyé
         for pattern, confidence, pattern_name in patterns_all:
-            match = re.search(pattern, text, re.IGNORECASE)
+            match = re.search(pattern, text_clean, re.IGNORECASE)
             if match:
-                numero = match.group(1).strip()
-                # Vérifier longueur minimale (au moins 3 caractères)
-                if len(numero) >= 3:
-                    return FieldValue(
-                        value=numero,
-                        confidence=confidence,
-                        extraction_method='regex_pattern',
-                        pattern=pattern_name
-                    )
-        
-        return None
+                numero = match.group(1).strip()\n                # Nettoyer le numéro extrait (retirer \u0000, espaces multiples)\n                numero = re.sub(r'[\u0000\\s]+', '', numero)\n                # Vérifier longueur minimale (au moins 3 caractères)\n                if len(numero) >= 3 and len(numero) <= 20:\n                    return FieldValue(\n                        value=numero,\n                        confidence=confidence,\n                        extraction_method='regex_pattern_cleaned',\n                        pattern=pattern_name\n                    )\n        \n        return None
     
     def _calculate_global_confidence(self, fields: Dict) -> float:
         """Calcule la confiance globale du résultat"""
