@@ -33,8 +33,23 @@ def detect_document_type(text: str) -> str:
         logger.warning("detect_document_type: empty text, returning AUTRE")
         return 'AUTRE'
     
+    # [FIX] LOGGING TEXTE BRUT (premiers 500 caractères)
+    text_preview = text[:500].replace('\n', ' ')
+    logger.info("=" * 80)
+    logger.info("[OCR_TEXT_BRUT] Extrait (500 premiers chars):")
+    logger.info(f"  {text_preview}...")
+    logger.info(f"[OCR_TEXT_BRUT] Longueur totale: {len(text)} caractères")
+    logger.info("=" * 80)
+    
     text_upper = text.upper()
+    
+    # [FIX] Nettoyer espaces multiples causés par certains PDF (PyPDF2)
+    # Exemple : "F a c t u r e" devient "FACTURE"
     text_normalized = re.sub(r'\s+', ' ', text_upper)  # Normaliser espaces
+    
+    # [FIX CRITIQUE] Supprimer TOUS les espaces pour matching robuste
+    # Permet de matcher "F A C T U R E" avec "FACTURE"
+    text_no_spaces = text_normalized.replace(' ', '')
     
     # Score par type
     scores = {
@@ -46,25 +61,54 @@ def detect_document_type(text: str) -> str:
     }
     
     # === FACTURE ===
-    facture_keywords = [
+    # [FIX] Patterns renforcés avec pondération
+    facture_keywords_strong = [
+        'FACTURE N°',
+        'INVOICE N°',
+        'NUMÉRO DE FACTURE',
+        'INVOICE NUMBER'
+    ]
+    
+    facture_keywords_medium = [
         'FACTURE',
         'INVOICE',
         'FACT N°',
         'FACT.',
+        'DATE D\'ÉCHÉANCE',
+        'DUE DATE'
+    ]
+    
+    facture_keywords_weak = [
         'TOTAL TTC',
         'MONTANT TTC',
         'NET À PAYER',
         'TVA',
-        'HT',
-        'DATE D\'ÉCHÉANCE'
+        'HT'
     ]
     
-    for kw in facture_keywords:
-        if kw in text_normalized:
+    # Patterns forts = +3 points
+    for kw in facture_keywords_strong:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
+            scores['FACTURE'] += 3
+            logger.debug(f"  ✓ FACTURE strong: '{kw}' matched")
+    
+    # Patterns moyens = +2 points
+    for kw in facture_keywords_medium:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
+            scores['FACTURE'] += 2
+            logger.debug(f"  ✓ FACTURE medium: '{kw}' matched")
+    
+    # Patterns faibles = +1 point
+    for kw in facture_keywords_weak:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
             scores['FACTURE'] += 1
+            logger.debug(f"  ✓ FACTURE weak: '{kw}' matched")
     
     # Exclure si c'est un BL
-    if 'BON' in text_normalized and 'LIVRAISON' in text_normalized:
+    if 'BON' in text_no_spaces and 'LIVRAISON' in text_no_spaces:
         scores['FACTURE'] = max(0, scores['FACTURE'] - 3)
     
     # === BON DE LIVRAISON ===
@@ -77,7 +121,8 @@ def detect_document_type(text: str) -> str:
     ]
     
     for kw in bl_keywords:
-        if kw in text_normalized:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
             scores['BON_LIVRAISON'] += 2
     
     # === DEVIS ===
@@ -90,7 +135,8 @@ def detect_document_type(text: str) -> str:
     ]
     
     for kw in devis_keywords:
-        if kw in text_normalized:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
             scores['DEVIS'] += 2
     
     # === BON DE COMMANDE ===
@@ -103,42 +149,56 @@ def detect_document_type(text: str) -> str:
     ]
     
     for kw in bc_keywords:
-        if kw in text_normalized:
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
             scores['BON_COMMANDE'] += 2
     
     # === TICKET DE CAISSE ===
+    # [FIX] Patterns affinés pour éviter faux positifs avec FACTURE
+    # Retrait : CB, CARTE BANCAIRE, TOTAL A PAYER (présents dans factures)
     ticket_keywords = [
-        'TICKET',
-        'CAISSE',
-        'MAGASIN',
-        'ARTICLE(S)',
-        'ARTICLES',
-        'CB',
-        'CARTE BANCAIRE',
-        'TOTAL A PAYER',
-        'MERCI DE VOTRE VISITE'
+        'TICKET DE CAISSE',  # Pattern spécifique
+        'TICKET N°',
+        'N° CAISSE',
+        'NUMERO DE CAISSE',
+        'CODE CAISSE',
+        'MERCI DE VOTRE VISITE',
+        'A BIENTOT'
     ]
     
     for kw in ticket_keywords:
-        if kw in text_normalized:
-            scores['TICKET'] += 1
+        kw_no_space = kw.replace(' ', '')
+        if kw_no_space in text_no_spaces:
+            scores['TICKET'] += 2  # Score augmenté car patterns plus précis
     
     # Patterns spécifiques tickets
-    if re.search(r'\d+\s+ARTICLE', text_normalized):
+    if re.search(r'\d+ARTICLE', text_no_spaces):  # "5ARTICLES" sans espace
         scores['TICKET'] += 2
     
     # Détection grands distributeurs (ticket)
     distributeurs = ['CARREFOUR', 'LECLERC', 'AUCHAN', 'INTERMARCHE', 'LIDL', 'CASINO']
     for distrib in distributeurs:
-        if distrib in text_normalized:
-            scores['TICKET'] += 2
+        if distrib in text_no_spaces:
+            scores['TICKET'] += 3  # Score renforcé pour grande distribution
             break
+    
+    # [FIX] PRIORITÉ FACTURE : Si "FACTURE" détecté, pénaliser TICKET
+    if 'FACTURE' in text_no_spaces or 'INVOICE' in text_no_spaces:
+        if scores['FACTURE'] > 0:
+            scores['TICKET'] = max(0, scores['TICKET'] - 3)  # Réduction score ticket
     
     # === SÉLECTION DU TYPE ===
     max_score = max(scores.values())
     
+    # [FIX] LOGGING EXHAUSTIF - Tous les scores
+    logger.info("=" * 60)
+    logger.info("[TYPE_DETECTION] Scores de classification:")
+    for doc_type, score in sorted(scores.items(), key=lambda x: x[1], reverse=True):
+        logger.info(f"  {doc_type:20} = {score:3} points")
+    logger.info("=" * 60)
+    
     if max_score == 0:
-        logger.info(f"detect_document_type: no keywords matched, returning AUTRE")
+        logger.warning(f"[TYPE_DETECTION] Aucun mot-clé matché → AUTRE")
         return 'AUTRE'
     
     # Prendre le type avec le meilleur score
@@ -146,12 +206,17 @@ def detect_document_type(text: str) -> str:
     
     # Si égalité, ordre de priorité
     priority_order = ['FACTURE', 'BON_LIVRAISON', 'DEVIS', 'BON_COMMANDE', 'TICKET']
+    
+    if len(detected_types) > 1:
+        logger.warning(f"[TYPE_DETECTION] Égalité de scores ({max_score}) entre: {detected_types}")
+        logger.warning(f"[TYPE_DETECTION] Application ordre de priorité: {priority_order}")
+    
     for doc_type in priority_order:
         if doc_type in detected_types:
-            logger.info(f"detect_document_type: detected {doc_type} (score: {max_score})")
+            logger.info(f"[TYPE_DETECTION] ✅ TYPE FINAL = {doc_type} (score: {max_score})")
             return doc_type
     
-    logger.info(f"detect_document_type: fallback to AUTRE")
+    logger.warning(f"[TYPE_DETECTION] Fallback → AUTRE")
     return 'AUTRE'
 
 

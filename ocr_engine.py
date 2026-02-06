@@ -163,13 +163,18 @@ class OCREngine:
             # 1.1 Détection type de document (basée sur le texte extrait)
             detected_doc_type = detect_document_type(document.get_text())
             type_confidence = get_document_type_confidence(document.get_text(), detected_doc_type)
-            self.logger.info(f"[{document_id}] Document type detected: {detected_doc_type} (confidence: {type_confidence:.2f})")
             
-            # 1.2 Récupérer métadonnées OCR
+            # [FIX] Logging détaillé métadonnées OCR
             ocr_mode = document.metadata.get('ocr_mode', 'UNKNOWN')
             pdf_text_detected = document.metadata.get('pdf_text_detected', None)
             
-            self.logger.info(f"[{document_id}] OCR metadata: mode={ocr_mode}, pdf_text_detected={pdf_text_detected}")
+            self.logger.info("=" * 80)
+            self.logger.info(f"[{document_id}] 📄 MÉTADONNÉES DOCUMENT")
+            self.logger.info(f"[{document_id}]   OCR_MODE           = {ocr_mode}")
+            self.logger.info(f"[{document_id}]   PDF_TEXT_DETECTED  = {pdf_text_detected}")
+            self.logger.info(f"[{document_id}]   DOCUMENT_TYPE      = {detected_doc_type}")
+            self.logger.info(f"[{document_id}]   TYPE_CONFIDENCE    = {type_confidence:.2%}")
+            self.logger.info("=" * 80)
             
             # 2. Préparation du contexte
             context = self._prepare_context(source_entreprise, options)
@@ -301,6 +306,8 @@ class OCREngine:
         - Patterns logo/identité visuelle
         - SIRET
         - Mots-clés footer/header
+        
+        [FIX] Si aucun pattern trouvé → retourne "UNKNOWN" au lieu de default
         """
         entreprises = self.config.get('entreprises', {}).get('entreprises', [])
         
@@ -314,26 +321,26 @@ class OCREngine:
             logo_patterns = identity.get('logo_patterns', [])
             for pattern in logo_patterns:
                 if pattern.lower() in document_text:
-                    self.logger.debug(f"Entreprise detected via logo pattern: {pattern}")
+                    self.logger.info(f"[AUTO-DETECT] ✅ Entreprise détectée via logo: {pattern} → {name}")
                     return name
             
             # Vérification footer patterns
             footer_patterns = identity.get('footer_patterns', [])
             for pattern in footer_patterns:
                 if pattern.lower() in document_text:
-                    self.logger.debug(f"Entreprise detected via footer pattern: {pattern}")
+                    self.logger.info(f"[AUTO-DETECT] ✅ Entreprise détectée via footer: {pattern} → {name}")
                     return name
             
             # Vérification SIRET
             siret = entreprise.get('siret', '')
             if siret and siret in document_text:
-                self.logger.debug(f"Entreprise detected via SIRET: {siret}")
+                self.logger.info(f"[AUTO-DETECT] ✅ Entreprise détectée via SIRET: {siret} → {name}")
                 return name
         
-        # Par défaut, première entreprise
-        default_entreprise = entreprises[0]['name'] if entreprises else 'Unknown'
-        self.logger.warning(f"No entreprise pattern matched, using default: {default_entreprise}")
-        return default_entreprise
+        # [FIX] AUCUN PATTERN TROUVÉ = UNKNOWN (pas de default arbitraire)
+        self.logger.warning(f"[AUTO-DETECT] ❌ Aucun pattern d'entreprise trouvé → UNKNOWN")
+        self.logger.warning(f"[AUTO-DETECT] Ce document ne provient d'aucune entreprise configurée")
+        return "UNKNOWN"
     
     def _prepare_context(self, source_entreprise: str, options: dict) -> ProcessingContext:
         """Prépare le contexte de traitement"""
