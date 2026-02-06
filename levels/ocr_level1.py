@@ -100,6 +100,38 @@ class OCRLevel1:
         self.confidence_threshold = config.get('ocr_level1', {}).get('confidence_threshold', 0.7)
         logger.info("OCR Level 1 initialized")
     
+    def _clean_ocr_text(self, text: str) -> str:
+        """Nettoyage ULTRA-ROBUSTE du texte OCR
+        
+        Gère les cas suivants :
+        - "F a c t u r e" → "Facture"
+        - "N 8 W Y 0 K F A" → "N8WY0KFA"
+        - "\u0000" → ""
+        - Espaces multiples → 1 espace
+        """
+        # 1. Retirer NULL bytes
+        text = text.replace('\u0000', '').replace('\x00', '')
+        
+        # 2. Retirer TOUS les espaces entre caractères alphanumériques isolés
+        # Pattern : "N 8 W Y" → "N8WY"
+        # Mais préserver : "Invoice Number" (mots complets)
+        lines = []
+        for line in text.split('\n'):
+            # Si la ligne contient beaucoup d'espaces isolés, les retirer
+            if re.search(r'\b[A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9]', line):
+                # Cas : "N u m é r o  d e  f a c t u r e"
+                line = re.sub(r'(?<=[A-Za-z0-9])\s+(?=[A-Za-z0-9])', '', line)
+            lines.append(line)
+        text = '\n'.join(lines)
+        
+        # 3. Normaliser espaces multiples
+        text = re.sub(r' {2,}', ' ', text)
+        
+        # 4. Nettoyer sauts de ligne multiples
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        
+        return text.strip()
+    
     def process(self, document, context) -> 'OCRResult':
         """
         Traite un document au niveau 1
@@ -116,12 +148,12 @@ class OCRLevel1:
         text = document.get_text()
         text_original = text  # Garder l'original BRUT pour le JSON final
         
-        # [FIX] Normaliser espaces (PyPDF2 peut ajouter espaces entre lettres)
-        # "F a c t u r e" → "Facture"
-        text = re.sub(r'(?<=[a-zA-Z])\s(?=[a-zA-Z])', '', text)  # Retirer espaces ENTRE lettres
-        text = re.sub(r'\s+', ' ', text)  # Normaliser espaces multiples
-        
+        # [FIX ULTRA-ROBUSTE] Nettoyage complet du texte OCR
+        text = self._clean_ocr_text(text)
         text_lower = text.lower()
+        
+        # LOG DEBUG : afficher les premiers 300 caractères du texte nettoyé
+        logger.info(f"[OCR1] Texte nettoyé (300 premiers chars):\n{text[:300]}\n{'='*60}")
         
         fields = {}
         
@@ -544,24 +576,26 @@ class OCRLevel1:
         text_clean = re.sub(r'(?<=[A-Za-z0-9])\s+(?=[A-Za-z0-9])', '', text)
         
         # PATTERNS GÉNÉRIQUES + SPÉCIFIQUES PAR TYPE
+        # IMPORTANT : patterns doivent contenir AU MOINS un chiffre pour éviter les faux positifs
         patterns_all = [
             # Patterns avec label explicite (haute confiance)
-            (r'N[°oúu]m[eé]ro\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'facture_label_fr'),
-            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'invoice_number'),
-            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.95, 'facture_label'),
-            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.90, 'facture_prefix'),
-            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_\u0000\s]{3,20})', 0.90, 'facture_prefix'),
+            # Match : "Numéro de facture : N8WY0KFA-0003" ou "Invoice Number: 12345"
+            (r'N[°oúu]m[eé]ro\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'facture_label_fr'),
+            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'invoice_number'),
+            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'facture_label'),
+            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'facture_prefix'),
+            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'facture_prefix'),
             
             # Patterns pour tickets
-            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]{3,20})', 0.90, 'ticket_label'),
-            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,20})', 0.85, 'ticket_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'ticket_label'),
+            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.85, 'ticket_prefix'),
             
             # Patterns pour devis
-            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]{3,20})', 0.90, 'devis_label'),
-            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,20})', 0.85, 'devis_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'devis_label'),
+            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.85, 'devis_prefix'),
             
             # Pattern générique: N° suivi de code alphanumérique (>= 5 caractères)
-            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,20})', 0.70, 'generic_number'),
+            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,25})', 0.70, 'generic_number'),
         ]
         
         # Essayer tous les patterns sur le texte nettoyé
@@ -569,14 +603,22 @@ class OCRLevel1:
             match = re.search(pattern, text_clean, re.IGNORECASE)
             if match:
                 numero = match.group(1).strip()
-                # Nettoyer le numéro extrait (retirer \u0000, espaces multiples)
-                numero = re.sub(r'[\u0000\s]+', '', numero)
-                # Vérifier longueur minimale (au moins 3 caractères)
-                if len(numero) >= 3 and len(numero) <= 20:
+                # Nettoyer le numéro extrait
+                numero = re.sub(r'[\s\-_]+', '', numero)  # Retirer espaces, tirets, underscores
+                
+                # VALIDATION STRICTE : 
+                # 1. Doit contenir AU MOINS un chiffre (sinon c'est un mot français)
+                # 2. Longueur : 3-25 caractères
+                # 3. Ne doit pas être QUE des lettres (ex: "nesbsabonrerhbiorryn")
+                has_digit = bool(re.search(r'\d', numero))
+                valid_length = 3 <= len(numero) <= 25
+                not_only_letters = not numero.isalpha()
+                
+                if has_digit and valid_length and not_only_letters:
                     return FieldValue(
                         value=numero,
                         confidence=confidence,
-                        extraction_method='regex_pattern_cleaned',
+                        extraction_method='regex_pattern_validated',
                         pattern=pattern_name
                     )
         
