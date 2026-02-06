@@ -466,26 +466,42 @@ class OCRLevel1:
         return ' '.join(name_lines) if name_lines else 'Unknown'
     
     def _extract_reference(self, text: str, doc_type: str) -> Optional['FieldValue']:
-        """Extrait la référence du document"""
+        """Extrait la référence du document - MÉTHODE ROBUSTE"""
         from ocr_engine import FieldValue
         
-        patterns = {
-            'facture': [r'FACTURE\s*N[°o]?\s*:?\s*([A-Z0-9-]+)', r'N[°o]\s*([A-Z0-9-]+)'],
-            'devis': [r'DEVIS\s*N[°o]?\s*:?\s*([A-Z0-9-]+)'],
-            'ticket': [r'TICKET\s*N[°o]?\s*:?\s*([A-Z0-9-]+)'],
-        }
+        # PATTERNS GÉNÉRIQUES + SPÉCIFIQUES PAR TYPE
+        patterns_all = [
+            # Patterns avec label explicite (haute confiance)
+            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]+)', 0.95, 'facture_label'),
+            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_]+)', 0.95, 'invoice_number'),
+            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'facture_prefix'),
+            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'facture_prefix'),
+            
+            # Patterns pour tickets
+            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'ticket_label'),
+            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.85, 'ticket_prefix'),
+            
+            # Patterns pour devis
+            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]+)', 0.90, 'devis_label'),
+            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]+)', 0.85, 'devis_prefix'),
+            
+            # Pattern générique: N° suivi de code alphanumérique (>= 5 caractères)
+            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,})', 0.70, 'generic_number'),
+        ]
         
-        type_patterns = patterns.get(doc_type, [])
-        
-        for pattern in type_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            if matches:
-                return FieldValue(
-                    value=matches[0],
-                    confidence=0.85,
-                    extraction_method='regex',
-                    pattern=pattern
-                )
+        # Essayer tous les patterns
+        for pattern, confidence, pattern_name in patterns_all:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                numero = match.group(1).strip()
+                # Vérifier longueur minimale (au moins 3 caractères)
+                if len(numero) >= 3:
+                    return FieldValue(
+                        value=numero,
+                        confidence=confidence,
+                        extraction_method='regex_pattern',
+                        pattern=pattern_name
+                    )
         
         return None
     
@@ -557,14 +573,51 @@ class OCRLevel1:
         return None
     
     def _extract_emetteur_complet(self, text: str, text_lower: str, context) -> Dict[str, 'FieldValue']:
-        """Extrait TOUTES les infos de l'émetteur (nom, adresse, SIRET, etc.)"""
+        """Extrait TOUTES les infos de l'émetteur (nom, adresse, SIRET, etc.) - MÉTHODE ROBUSTE"""
         from ocr_engine import FieldValue
         
         result = {}
         lines = text.split('\n')
         
-        # Chercher le nom de l'entreprise émettrice RÉEL dans le texte
-        # Strategy: chercher dans les 20 premières lignes une ligne ISOLÉE avec PTE/LTD/SARL/etc.
+        # ========================================================================
+        # PATTERNS D'ÉMETTEURS CONNUS (COIN HAUT GAUCHE - 5-10 premières lignes)
+        # ========================================================================
+        EMETTEURS_CONNUS = {
+            # Grandes surfaces / Magasins
+            'CARREFOUR': ['carrefour', 'destcarrefour', 'aybaté', 'baie-mahault', 'destreland'],
+            'BRICODIA': ['bricodia', 'brico dia'],
+            'WELDOM': ['weldom'],
+            'INTERMARCHE': ['intermarche', 'intermarché'],
+            'LECLERC': ['leclerc', 'e.leclerc', 'e leclerc'],
+            
+            # Restaurants / Traiteurs
+            'MARTINS_TRAITEUR': ["martin's traiteur", 'martins traiteur', 'martin traiteur'],
+            
+            # Entreprises B2B
+            'MAINFUNC_PTE_LTD': ['mainfunc', 'main func', 'pte ltd', 'pte. ltd.'],
+            'GENSPARK': ['genspark'],
+        }
+        
+        # ÉTAPE 1: Recherche par patterns connus dans les 10 premières lignes (prioritaire)
+        text_haut = ' '.join(lines[:10]).lower()
+        
+        for nom_normalise, patterns in EMETTEURS_CONNUS.items():
+            for pattern in patterns:
+                if pattern.lower() in text_haut:
+                    # Trouver la ligne exacte pour confiance accrue
+                    for i, line in enumerate(lines[:10]):
+                        if pattern.lower() in line.lower():
+                            result['emetteur_nom'] = FieldValue(
+                                value=nom_normalise,
+                                confidence=0.95,
+                                extraction_method='known_pattern_match',
+                                pattern=f"Ligne {i+1}: {pattern}",
+                                position={'line': i+1, 'zone': 'top_left'}
+                            )
+                            logger.info(f"[OCR1] Émetteur détecté PAR PATTERN CONNU: {nom_normalise}")
+                            return result  # Retour immédiat si match connu
+        
+        # ÉTAPE 2: Fallback - Recherche ligne avec suffixe d'entreprise (PTE, LTD, SARL, etc.)
         for i, line in enumerate(lines[:20]):
             line_clean = line.strip()
             # Retirer caractères nulls
@@ -580,20 +633,25 @@ class OCRLevel1:
                 
                 result['emetteur_nom'] = FieldValue(
                     value=line_clean,
-                    confidence=0.90,
+                    confidence=0.75,
                     extraction_method='line_pattern_match',
-                    pattern='company_suffix_in_line'
+                    pattern='company_suffix_in_line',
+                    position={'line': i+1}
                 )
-                break
+                logger.info(f"[OCR1] Émetteur détecté PAR SUFFIXE: {line_clean}")
+                return result
         
-        # Si pas trouvé, utiliser l'entreprise source du contexte (mais moins de confiance)
-        if 'emetteur_nom' not in result and context.source_entreprise != "UNKNOWN":
+        # ÉTAPE 3: Si RIEN trouvé, utiliser contexte MAIS avec confiance FAIBLE
+        if context.source_entreprise and context.source_entreprise != "UNKNOWN":
             result['emetteur_nom'] = FieldValue(
                 value=context.source_entreprise,
-                confidence=0.60,
+                confidence=0.50,
                 extraction_method='context_fallback',
                 pattern='source_entreprise'
             )
+            logger.warning(f"[OCR1] Émetteur NON DÉTECTÉ, fallback contexte: {context.source_entreprise}")
+        else:
+            logger.warning("[OCR1] Émetteur NON DÉTECTÉ et aucun contexte disponible")
         
         return result
     
@@ -624,19 +682,34 @@ class OCRLevel1:
         return result
     
     def _extract_siret(self, text: str) -> Optional['FieldValue']:
-        """Extrait le SIRET"""
+        """Extrait le SIRET (14 chiffres) - MÉTHODE ROBUSTE"""
         from ocr_engine import FieldValue
         
-        pattern = r'(?:SIRET|Siret)[\s:]+([\d\s]{14,})'
-        match = re.search(pattern, text, re.IGNORECASE)
+        # PATTERN 1: SIRET avec label (SIRET: xxxxx)
+        pattern_label = r'(?:SIRET|Siret)[\s:]+([\ d\s]{14,})'
+        match = re.search(pattern_label, text, re.IGNORECASE)
         
         if match:
             siret = re.sub(r'\s', '', match.group(1))[:14]  # Retirer espaces, garder 14 chiffres
+            if len(siret) == 14 and siret.isdigit():
+                return FieldValue(
+                    value=siret,
+                    confidence=0.95,
+                    extraction_method='regex_with_label',
+                    pattern=pattern_label
+                )
+        
+        # PATTERN 2: 14 chiffres consécutifs (sans label) - confiance plus faible
+        pattern_brut = r'\b(\d{14})\b'
+        match = re.search(pattern_brut, text)
+        
+        if match:
+            siret = match.group(1)
             return FieldValue(
                 value=siret,
-                confidence=0.95,
-                extraction_method='regex',
-                pattern=pattern
+                confidence=0.80,  # Confiance plus faible sans label
+                extraction_method='regex_numeric',
+                pattern='14_consecutive_digits'
             )
         
         return None
