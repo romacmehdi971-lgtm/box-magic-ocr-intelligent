@@ -108,23 +108,40 @@ class OCRLevel1:
         - "N 8 W Y 0 K F A" → "N8WY0KFA"
         - "\u0000" → ""
         - Espaces multiples → 1 espace
+        - Préserve les espaces avant les chiffres (montants)
         """
         # 1. Retirer NULL bytes
         text = text.replace('\u0000', '').replace('\x00', '')
         
-        # 2. Retirer TOUS les espaces entre caractères alphanumériques isolés
-        # Pattern : "N 8 W Y" → "N8WY"
-        # Mais préserver : "Invoice Number" (mots complets)
+        # 2. NETTOYAGE LIGNE PAR LIGNE
         lines = []
         for line in text.split('\n'):
+            # Protéger les montants : ajouter des marqueurs temporaires
+            # "Total 24,99" → "Total <MONTANT>24,99"
+            line = re.sub(r'(\d+[,\.]\d{2})', r'<MONTANT>\1', line)
+            
             # Si la ligne contient beaucoup d'espaces isolés, les retirer
-            if re.search(r'\b[A-Za-z0-9]\s+[A-Za-z0-9]\s+[A-Za-z0-9]', line):
-                # Cas : "N u m é r o  d e  f a c t u r e"
-                line = re.sub(r'(?<=[A-Za-z0-9])\s+(?=[A-Za-z0-9])', '', line)
+            if re.search(r'\b[A-Za-z]\s+[A-Za-z]\s+[A-Za-z]', line):
+                # Retirer espaces entre LETTRES isolées : "F a c t u r e" → "Facture"
+                line = re.sub(r'(?<=[A-Za-z])\s+(?=[A-Za-z])', '', line)
+            
+            # Retirer espaces entre CHIFFRES isolés : "2 4 , 9 9" → "24,99"
+            # MAIS uniquement dans les marqueurs <MONTANT>
+            if '<MONTANT>' in line:
+                # Extraire les montants protégés
+                montants = re.findall(r'<MONTANT>([^<]+?)(?:<|$|\s)', line)
+                for montant in montants:
+                    # Nettoyer les espaces dans le montant
+                    montant_clean = re.sub(r'\s+', '', montant)
+                    line = line.replace(f'<MONTANT>{montant}', f' {montant_clean}')
+            
+            # Retirer les marqueurs restants
+            line = line.replace('<MONTANT>', ' ')
+            
             lines.append(line)
         text = '\n'.join(lines)
         
-        # 3. Normaliser espaces multiples
+        # 3. Normaliser espaces multiples (mais garder au moins 1 espace)
         text = re.sub(r' {2,}', ' ', text)
         
         # 4. Nettoyer sauts de ligne multiples
@@ -577,25 +594,26 @@ class OCRLevel1:
         
         # PATTERNS GÉNÉRIQUES + SPÉCIFIQUES PAR TYPE
         # IMPORTANT : patterns doivent contenir AU MOINS un chiffre pour éviter les faux positifs
+        # FRONTIÈRE DE MOT \b à la fin pour éviter de capturer des mots suivants (ex: "N8WY0KFA0003Dated")
         patterns_all = [
             # Patterns avec label explicite (haute confiance)
             # Match : "Numéro de facture : N8WY0KFA-0003" ou "Invoice Number: 12345"
-            (r'N[°oúu]m[eé]ro\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'facture_label_fr'),
-            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'invoice_number'),
-            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})', 0.95, 'facture_label'),
-            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'facture_prefix'),
-            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'facture_prefix'),
+            (r'N[°oúu]m[eé]ro\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.95, 'facture_label_fr'),
+            (r'Invoice\s+Number\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.95, 'invoice_number'),
+            (r'N[°oú]\s*(?:de\s*)?facture\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.95, 'facture_label'),
+            (r'FACTURE\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.90, 'facture_prefix'),
+            (r'N[°oú]\s*FACTURE\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.90, 'facture_prefix'),
             
             # Patterns pour tickets
-            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'ticket_label'),
-            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.85, 'ticket_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?ticket\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.90, 'ticket_label'),
+            (r'TICKET\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.85, 'ticket_prefix'),
             
             # Patterns pour devis
-            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]{3,25})', 0.90, 'devis_label'),
-            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})', 0.85, 'devis_prefix'),
+            (r'N[°oú]\s*(?:de\s*)?devis\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.90, 'devis_label'),
+            (r'DEVIS\s*N[°oú]?\s*:?\s*([A-Z0-9\-_]{3,25})(?:\b|$|\s)', 0.85, 'devis_prefix'),
             
             # Pattern générique: N° suivi de code alphanumérique (>= 5 caractères)
-            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,25})', 0.70, 'generic_number'),
+            (r'N[°oú]\s*:?\s*([A-Z0-9\-_]{5,25})(?:\b|$|\s)', 0.70, 'generic_number'),
         ]
         
         # Essayer tous les patterns sur le texte nettoyé
