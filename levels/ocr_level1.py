@@ -568,7 +568,19 @@ class OCRLevel1:
         for pattern, confidence, pattern_name in patterns_all:
             match = re.search(pattern, text_clean, re.IGNORECASE)
             if match:
-                numero = match.group(1).strip()\n                # Nettoyer le numéro extrait (retirer \u0000, espaces multiples)\n                numero = re.sub(r'[\u0000\\s]+', '', numero)\n                # Vérifier longueur minimale (au moins 3 caractères)\n                if len(numero) >= 3 and len(numero) <= 20:\n                    return FieldValue(\n                        value=numero,\n                        confidence=confidence,\n                        extraction_method='regex_pattern_cleaned',\n                        pattern=pattern_name\n                    )\n        \n        return None
+                numero = match.group(1).strip()
+                # Nettoyer le numéro extrait (retirer \u0000, espaces multiples)
+                numero = re.sub(r'[\u0000\s]+', '', numero)
+                # Vérifier longueur minimale (au moins 3 caractères)
+                if len(numero) >= 3 and len(numero) <= 20:
+                    return FieldValue(
+                        value=numero,
+                        confidence=confidence,
+                        extraction_method='regex_pattern_cleaned',
+                        pattern=pattern_name
+                    )
+        
+        return None
     
     def _calculate_global_confidence(self, fields: Dict) -> float:
         """Calcule la confiance globale du résultat"""
