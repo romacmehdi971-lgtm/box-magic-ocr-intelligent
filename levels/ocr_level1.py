@@ -114,13 +114,21 @@ class OCRLevel1:
         from ocr_engine import OCRResult, FieldValue
         
         text = document.get_text()
+        
+        # [FIX] Normaliser espaces (PyPDF2 peut ajouter espaces entre lettres)
+        # "F a c t u r e" → "Facture"
+        text = re.sub(r'(?<=[a-zA-Z])\s(?=[a-zA-Z])', '', text)  # Retirer espaces ENTRE lettres
+        text = re.sub(r'\s+', ' ', text)  # Normaliser espaces multiples
+        
         text_lower = text.lower()
         
         fields = {}
         
-        # 1. Détection type document
-        doc_type, type_conf = self._detect_document_type(text)
-        logger.info(f"Document type detected: {doc_type} (confidence: {type_conf:.2f})")
+        # [FIX] 1. Type document déjà détecté par engine (type_detector.py)
+        # On ne redétecte pas ici pour éviter les conflits
+        # Le type sera assigné par l'engine après ce traitement
+        doc_type = "unknown"  # Valeur temporaire, sera écrasée
+        logger.info(f"[OCR1] Type document sera assigné par l'engine (type_detector)")
         
         # 2. Extraction dates
         date_field = self._extract_date(text, text_lower)
