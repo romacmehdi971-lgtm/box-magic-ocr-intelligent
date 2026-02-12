@@ -1,3 +1,11 @@
+# Credentials et secrets
+credentials.json
+**/credentials.json
+.env
+**/.env
+secrets.*
+**/secrets.*
+
 # Python
 __pycache__/
 *.py[cod]
@@ -19,14 +27,11 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
 
 # Virtual environments
 venv/
-env/
 ENV/
-env.bak/
-venv.bak/
+env/
 
 # IDE
 .vscode/
@@ -35,39 +40,22 @@ venv.bak/
 *.swo
 *~
 
-# Configuration locale
-config/*.local
-config/google_credentials.json
-*.yaml.local
-
-# Memory store (contient données sensibles)
-memory/rules.json
-
-# Logs
-*.log
-logs/
-
 # OS
 .DS_Store
 Thumbs.db
+
+# MCP Cockpit - Artifacts générés (à ignorer)
+mcp_cockpit/reports/healthcheck_*.md
+mcp_cockpit/reports/snapshot_*.json
+mcp_cockpit/reports/audit_log_*.json
+mcp_cockpit/snapshots/*.json
+mcp_cockpit/audit_logs/*.json
 
 # Tests
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
 
-# Documents de test (privés)
-documents/
-tests/fixtures/*.pdf
-tests/fixtures/*.png
-
-# Temporary
-tmp/
-temp/
-*.tmp
-
-# === SECRETS (NE JAMAIS COMMIT) ===
-*.json
-**/*.json
-config/google_credentials.json
+# Logs
+*.log
+logs/
