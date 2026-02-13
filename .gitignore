@@ -71,3 +71,16 @@ temp/
 *.json
 **/*.json
 config/google_credentials.json
+
+# MCP Cockpit - Artifacts générés
+mcp_cockpit/reports/healthcheck_*.md
+mcp_cockpit/reports/snapshot_*.json
+mcp_cockpit/reports/audit_log_*.json
+mcp_cockpit/snapshots/*.json
+mcp_cockpit/audit_logs/*.json
+
+# Credentials et secrets
+credentials.json
+**/credentials.json
+secrets.*
+**/secrets.*
