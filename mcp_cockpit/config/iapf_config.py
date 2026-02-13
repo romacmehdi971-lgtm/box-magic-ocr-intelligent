@@ -41,9 +41,11 @@ SHEETS_CONFIG = {
     }
 }
 
-# Drive Architecture
+# Drive Architecture - PROD IAPF
 DRIVE_PATHS = {
     "root": "IA Process Factory",
+    "root_id": "1LwUZ67zVstl2tuogcdYYihPilUAXQai3",
+    "root_url": "https://drive.google.com/drive/folders/1LwUZ67zVstl2tuogcdYYihPilUAXQai3",
     "governance": "00_GOUVERNANCE",
     "mcp_cockpit": "MCP_COCKPIT",
     "subdirs": [
@@ -53,6 +55,17 @@ DRIVE_PATHS = {
         "04_AUDIT_LOGS",
         "05_RUNBOOKS",
         "99_ARCHIVES"
+    ]
+}
+
+# Service Account PROD (pas de credentials.json en PROD)
+SERVICE_ACCOUNT = {
+    "email": "mcp-cockpit@box-magique-gp-prod.iam.gserviceaccount.com",
+    "use_metadata": True,  # ADC via Cloud Run Job identity
+    "required_scopes": [
+        "https://www.googleapis.com/auth/cloud-platform",  # Cloud Run read
+        "https://www.googleapis.com/auth/drive.readonly",  # Drive read
+        "https://www.googleapis.com/auth/spreadsheets"     # Sheets read/write
     ]
 }
 
