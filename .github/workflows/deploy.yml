@@ -1,0 +1,141 @@
+name: MCP Deploy Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_type:
+        description: 'Type de déploiement'
+        required: true
+        type: choice
+        options:
+          - git_push
+          - cloud_run
+          - full
+      message:
+        description: 'Message de déploiement'
+        required: false
+        default: 'Automated deploy from MCP'
+
+jobs:
+  git-push:
+    if: ${{ github.event.inputs.deploy_type == 'git_push' || github.event.inputs.deploy_type == 'full' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      
+      - name: Configure Git
+        run: |
+          git config user.name "MCP Deploy Bot"
+          git config user.email "mcp@iapf.com"
+      
+      - name: Check for changes
+        id: check
+        run: |
+          if git diff --quiet origin/main; then
+            echo "no_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "no_changes=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Push to main (if changes)
+        if: steps.check.outputs.no_changes == 'false'
+        run: |
+          echo "📤 Pushing changes to main..."
+          git push origin HEAD:main
+      
+      - name: Create deployment tag
+        run: |
+          TAG="deploy-$(date +%Y%m%d-%H%M%S)"
+          git tag -a "$TAG" -m "${{ github.event.inputs.message }}"
+          git push origin "$TAG"
+          echo "✅ Tag created: $TAG"
+
+  cloud-run-deploy:
+    if: ${{ github.event.inputs.deploy_type == 'cloud_run' || github.event.inputs.deploy_type == 'full' }}
+    needs: [git-push]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      - name: Configure Docker for GCR
+        run: |
+          gcloud auth configure-docker
+      
+      - name: Build Docker image
+        run: |
+          echo "🔨 Building Docker image..."
+          docker build -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/ocr-intelligent:latest \
+            -t gcr.io/${{ secrets.GCP_PROJECT_ID }}/ocr-intelligent:$(date +%Y%m%d-%H%M%S) \
+            -f Dockerfile .
+      
+      - name: Push Docker image to GCR
+        run: |
+          echo "📤 Pushing image to GCR..."
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/ocr-intelligent:latest
+          docker push gcr.io/${{ secrets.GCP_PROJECT_ID }}/ocr-intelligent:$(date +%Y%m%d-%H%M%S)
+      
+      - name: Deploy to Cloud Run
+        run: |
+          echo "☁️ Deploying to Cloud Run..."
+          gcloud run deploy box-magic-ocr-intelligent \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/ocr-intelligent:latest \
+            --region us-central1 \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --max-instances 10 \
+            --set-env-vars "OCR_READ_ONLY=true,LOG_LEVEL=INFO"
+      
+      - name: Verify deployment
+        run: |
+          SERVICE_URL=$(gcloud run services describe box-magic-ocr-intelligent \
+            --region us-central1 \
+            --format 'value(status.url)')
+          
+          echo "🔍 Verifying health at $SERVICE_URL/health..."
+          
+          sleep 10
+          
+          HEALTH_RESPONSE=$(curl -s "$SERVICE_URL/health" || echo "failed")
+          
+          if echo "$HEALTH_RESPONSE" | grep -q "healthy"; then
+            echo "✅ Deployment successful!"
+            echo "🔗 Service URL: $SERVICE_URL"
+          else
+            echo "❌ Health check failed"
+            exit 1
+          fi
+
+  notify:
+    needs: [git-push, cloud-run-deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "===================="
+          echo "Type: ${{ github.event.inputs.deploy_type }}"
+          echo "Message: ${{ github.event.inputs.message }}"
+          echo "Git Push: ${{ needs.git-push.result }}"
+          echo "Cloud Run: ${{ needs.cloud-run-deploy.result }}"
+          echo ""
+          
+          if [[ "${{ needs.git-push.result }}" == "success" ]] && [[ "${{ needs.cloud-run-deploy.result }}" == "success" ]]; then
+            echo "✅ All deployments successful!"
+          else
+            echo "⚠️ Some deployments failed. Check logs above."
+          fi
