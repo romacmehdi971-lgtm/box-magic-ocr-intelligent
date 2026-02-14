@@ -1,0 +1,132 @@
+name: MCP Deploy Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_type:
+        description: 'Type de déploiement'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - git_push
+          - cloud_run
+          - full
+      message:
+        description: 'Message de commit (optionnel)'
+        required: false
+
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: box-magic-ocr-intelligent
+  REGION: europe-west1
+
+jobs:
+  git-push:
+    if: inputs.deploy_type == 'git_push' || inputs.deploy_type == 'full'
+    runs-on: ubuntu-latest
+    outputs:
+      should_continue: ${{ steps.check_changes.outputs.has_changes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet origin/main HEAD; then
+            echo "No changes to push"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Push to main
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "MCP Deploy Bot"
+          git config user.email "mcp-deploy@iapf.com"
+          git push origin HEAD:main
+          
+      - name: Create deployment tag
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          TAG_NAME="deploy-$(date +'%Y%m%d-%H%M%S')"
+          git tag -a $TAG_NAME -m "Automated deployment $TAG_NAME"
+          git push origin $TAG_NAME
+          echo "Deployed with tag: $TAG_NAME"
+
+  cloud-run-deploy:
+    if: (inputs.deploy_type == 'cloud_run' || inputs.deploy_type == 'full') && (needs.git-push.result == 'success' || needs.git-push.result == 'skipped')
+    needs: [git-push]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        
+      - name: Configure Docker for GCR
+        run: |
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+          
+      - name: Build Docker image
+        run: |
+          IMAGE_NAME="${{ env.REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/${{ env.SERVICE_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+          docker build -t $IMAGE_NAME .
+          docker push $IMAGE_NAME
+          echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
+          
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ${{ env.SERVICE_NAME }} \
+            --image ${{ env.IMAGE_NAME }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --cpu 2 \
+            --max-instances 10 \
+            --set-env-vars "ENV=production,VERSION=${{ github.sha }}"
+            
+      - name: Get Cloud Run URL
+        id: get_url
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --format 'value(status.url)')
+          echo "service_url=$URL" >> $GITHUB_OUTPUT
+          echo "Deployed to: $URL"
+          
+      - name: Health check
+        run: |
+          URL=${{ steps.get_url.outputs.service_url }}
+          for i in {1..5}; do
+            if curl -f "$URL/health" > /dev/null 2>&1; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "⏳ Waiting for service to be ready (attempt $i/5)..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 5 attempts"
+          exit 1
+
+  notify:
+    needs: [git-push, cloud-run-deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Git Push**: ${{ needs.git-push.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cloud Run Deploy**: ${{ needs.cloud-run-deploy.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Workflow**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
