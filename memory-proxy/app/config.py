@@ -51,6 +51,10 @@ API_DESCRIPTION = "REST API for GPT access to IAPF Memory Hub"
 # Security
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 
+# API Key Authentication
+API_KEY = os.environ.get("API_KEY", "")  # Set via environment variable
+API_KEY_HEADER = "X-API-Key"
+
 # Proposal Configuration
 PROPOSAL_ID_PREFIX = "PROP"
 PROPOSAL_STATUS_PENDING = "PENDING"
