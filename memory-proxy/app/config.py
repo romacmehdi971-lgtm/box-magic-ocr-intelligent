@@ -44,9 +44,13 @@ EXPECTED_TABS = [
 ]
 
 # API Configuration
-API_VERSION = "1.0.0"
+API_VERSION = "3.0.1"  # Phase 1 complete: sheets fix, UTC timestamps, ACTION architecture
 API_TITLE = "MCP Memory Proxy"
 API_DESCRIPTION = "REST API for GPT access to IAPF Memory Hub"
+
+# Build/Deployment Information
+BUILD_VERSION = "3.0.1"
+GIT_COMMIT_SHA = "6731d42"  # Updated with each deployment
 
 # Security
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")

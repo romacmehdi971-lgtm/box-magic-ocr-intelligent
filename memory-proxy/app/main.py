@@ -194,6 +194,74 @@ async def system_time_status():
     }
 
 
+@app.get("/whoami", tags=["System"])
+async def whoami():
+    """
+    Runtime identity and configuration (PUBLIC - no API Key required)
+    
+    Returns:
+    - Service account identity
+    - GCP project and region
+    - Build version and commit SHA
+    - Active scopes (if available)
+    """
+    import subprocess
+    from google.auth import default
+    
+    # Get service account email
+    service_account_email = None
+    try:
+        result = subprocess.run(
+            ['gcloud', 'config', 'get-value', 'account'],
+            capture_output=True,
+            text=True,
+            timeout=2
+        )
+        if result.returncode == 0:
+            service_account_email = result.stdout.strip()
+    except:
+        pass
+    
+    # Try to get credentials info
+    credentials_info = {}
+    try:
+        credentials, project = default()
+        if hasattr(credentials, 'service_account_email'):
+            service_account_email = credentials.service_account_email
+        if hasattr(credentials, 'scopes'):
+            credentials_info['scopes'] = list(credentials.scopes) if credentials.scopes else []
+        credentials_info['project_id'] = project
+    except Exception as e:
+        credentials_info['error'] = str(e)
+    
+    # Get environment info
+    import os
+    
+    return {
+        "service": API_TITLE,
+        "version": API_VERSION,
+        "build_version": os.environ.get("BUILD_VERSION", API_VERSION),
+        "git_commit_sha": os.environ.get("GIT_COMMIT_SHA", "unknown"),
+        "runtime": {
+            "service_account_email": service_account_email or os.environ.get("SERVICE_ACCOUNT_EMAIL", "unknown"),
+            "project_id": os.environ.get("GCP_PROJECT_ID", credentials_info.get("project_id", "unknown")),
+            "region": os.environ.get("GCP_REGION", "us-central1"),
+            "platform": "Cloud Run"
+        },
+        "credentials": {
+            "type": "Application Default Credentials (Cloud Run service account)",
+            "scopes": credentials_info.get("scopes", ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"])
+        },
+        "config": {
+            "google_sheet_id": os.environ.get("GOOGLE_SHEET_ID", "not_set"),
+            "read_only_mode": os.environ.get("READ_ONLY_MODE", "false"),
+            "enable_actions": os.environ.get("ENABLE_ACTIONS", "false"),
+            "dry_run_mode": os.environ.get("DRY_RUN_MODE", "true"),
+            "log_level": os.environ.get("LOG_LEVEL", "INFO")
+        }
+    }
+
+
 # Protected endpoints (API Key required)
 
 @app.get("/sheets", response_model=SheetsListResponse, tags=["Sheets"], dependencies=[Depends(verify_api_key)])
