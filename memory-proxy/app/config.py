@@ -45,7 +45,7 @@ EXPECTED_TABS = [
 ]
 
 # API Configuration
-API_VERSION = "3.0.3"  # Dual-mode auth: IAM OR API-Key for /sheets/*
+API_VERSION = "3.0.4"  # Fix: Map "Unable to parse range" to HTTP 404
 API_TITLE = "MCP Memory Proxy"
 API_DESCRIPTION = "REST API for GPT access to IAPF Memory Hub"
 

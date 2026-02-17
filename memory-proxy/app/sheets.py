@@ -165,13 +165,27 @@ class SheetsClient:
             
             return values
         except HttpError as e:
+            # Extract error message from Google API
+            error_message = str(e)
+            if hasattr(e, 'error_details'):
+                error_message = str(e.error_details)
+            
+            # Detect 404 cases (sheet not found or invalid range)
+            is_not_found = any([
+                "Unable to parse range" in error_message,
+                "Requested entity was not found" in error_message,
+                "not found" in error_message.lower()
+            ])
+            
+            http_status = 404 if is_not_found else (e.resp.status if hasattr(e, 'resp') else 400)
+            
             error_details = {
                 "correlation_id": correlation_id,
                 "sheet_name": sheet_name,
                 "range": range_name if 'range_name' in locals() else 'unknown',
                 "limit": limit,
-                "http_status": e.resp.status if hasattr(e, 'resp') else None,
-                "error_reason": e.error_details if hasattr(e, 'error_details') else str(e),
+                "http_status": http_status,
+                "error_reason": error_message,
                 "stack_trace": traceback.format_exc()
             }
             logger.error(f"[{correlation_id}] Failed to get data from {sheet_name}: {error_details}")
