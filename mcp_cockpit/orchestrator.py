@@ -4,7 +4,7 @@ Orchestrateur IAPF - Commande healthcheck_iapf
 import json
 from typing import Dict, Any
 from .config import get_timestamp, get_filename_timestamp, SNAPSHOT_SCHEMA
-from .tools import get_cloudrun_tool, get_github_tool, get_drive_tool, get_sheets_tool
+from .tools import get_cloudrun_tool, get_github_tool, get_drive_tool, get_sheets_tool, get_proxy_tool
 from .utils import get_safe_logger
 
 logger = get_safe_logger(__name__)
@@ -16,7 +16,8 @@ class IAPFOrchestrator:
         self.cloudrun = get_cloudrun_tool()
         self.github = get_github_tool()
         self.drive = get_drive_tool()
-        self.sheets = get_sheets_tool()
+        self.sheets = get_sheets_tool()  # Pour writes (sync_hub, append_risk, etc.)
+        self.proxy = get_proxy_tool()    # Pour reads (via REST API avec X-API-Key)
         
         self.risks = []
         self.conflicts = []

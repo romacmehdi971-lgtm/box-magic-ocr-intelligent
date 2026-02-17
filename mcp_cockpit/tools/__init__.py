@@ -2,6 +2,7 @@ from .cloudrun_tool import get_cloudrun_tool, CloudRunTool
 from .github_tool import get_github_tool, GitHubTool
 from .drive_tool import get_drive_tool, DriveTool
 from .sheets_tool import get_sheets_tool, SheetsTool
+from .proxy_tool import get_proxy_tool, ProxyTool
 
 __all__ = [
     'get_cloudrun_tool',
@@ -11,5 +12,7 @@ __all__ = [
     'get_drive_tool',
     'DriveTool',
     'get_sheets_tool',
-    'SheetsTool'
+    'SheetsTool',
+    'get_proxy_tool',
+    'ProxyTool'
 ]
