@@ -362,7 +362,12 @@ async def list_sheets(sheets: SheetsClient = Depends(get_sheets)):
 @app.get("/sheets/{sheet_name}", response_model=SheetDataResponse, tags=["Sheets"], dependencies=[Depends(verify_dual_auth)])
 async def get_sheet_data(
     sheet_name: str,
-    limit: Optional[int] = Query(None, description="Maximum number of rows to return (excluding header)"),
+    limit: Optional[int] = Query(
+        default=50,
+        ge=1,
+        le=500,
+        description="Maximum number of rows to return (1-500, default 50)"
+    ),
     sheets: SheetsClient = Depends(get_sheets)
 ):
     """
