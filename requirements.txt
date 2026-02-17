@@ -24,6 +24,9 @@ google-auth>=2.23.0
 google-auth-oauthlib>=1.1.0
 google-auth-httplib2>=0.1.1
 
+# HTTP client for MCP Proxy
+requests>=2.31.0
+
 # Testing (optional)
 pytest>=7.4.0
 pytest-cov>=4.1.0
