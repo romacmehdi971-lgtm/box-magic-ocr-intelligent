@@ -18,6 +18,16 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# Install runtime dependencies (systemd for timedatectl, ca-certificates for NTP)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set timezone to UTC (all timestamps are generated in UTC)
+ENV TZ=UTC
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 # Copy Python dependencies from builder
 COPY --from=builder /root/.local /root/.local
 

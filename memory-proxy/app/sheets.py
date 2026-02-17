@@ -11,8 +11,10 @@ import os
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-from datetime import datetime
+from datetime import datetime, timezone
 import io
+import uuid
+import traceback
 
 from .config import (
     GOOGLE_SHEET_ID,
@@ -123,23 +125,58 @@ class SheetsClient:
             logger.warning(f"Failed to get headers for {sheet_name}: {e}")
             return []
     
-    def get_sheet_data(self, sheet_name: str, include_headers: bool = True) -> List[List[Any]]:
-        """Get all data from a sheet"""
+    def get_sheet_data(self, sheet_name: str, include_headers: bool = True, limit: Optional[int] = None) -> List[List[Any]]:
+        """Get data from a sheet with optional limit
+        
+        Args:
+            sheet_name: Name of the sheet to read
+            include_headers: Whether to include the header row
+            limit: Maximum number of data rows to return (excluding headers)
+        
+        Returns:
+            List of rows, where each row is a list of cell values
+        
+        Raises:
+            HttpError: If the API request fails
+        """
+        correlation_id = str(uuid.uuid4())
         try:
-            range_name = f"{sheet_name}!A:ZZ"
+            # If limit is specified, use a bounded range
+            if limit is not None and limit > 0:
+                # +1 for header row
+                max_row = limit + 1
+                range_name = f"{sheet_name}!A1:Z{max_row}"
+                logger.info(f"[{correlation_id}] Reading {sheet_name} with limit={limit}, range={range_name}")
+            else:
+                range_name = f"{sheet_name}!A:Z"
+                logger.info(f"[{correlation_id}] Reading entire sheet {sheet_name}")
+            
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.spreadsheet_id,
-                range=range_name
+                range=range_name,
+                majorDimension='ROWS'
             ).execute()
             
             values = result.get('values', [])
+            logger.info(f"[{correlation_id}] Retrieved {len(values)} rows from {sheet_name}")
             
             if not include_headers and values:
                 return values[1:]
             
             return values
         except HttpError as e:
-            logger.error(f"Failed to get data from {sheet_name}: {e}")
+            error_details = {
+                "correlation_id": correlation_id,
+                "sheet_name": sheet_name,
+                "range": range_name if 'range_name' in locals() else 'unknown',
+                "limit": limit,
+                "http_status": e.resp.status if hasattr(e, 'resp') else None,
+                "error_reason": e.error_details if hasattr(e, 'error_details') else str(e),
+                "stack_trace": traceback.format_exc()
+            }
+            logger.error(f"[{correlation_id}] Failed to get data from {sheet_name}: {error_details}")
+            # Store error details as an attribute for upstream handling
+            e.proxy_error_details = error_details
             raise
     
     def get_sheet_as_dict(self, sheet_name: str) -> List[Dict[str, Any]]:
@@ -161,8 +198,63 @@ class SheetsClient:
         
         return result
     
+    def insert_row_at_top(self, sheet_name: str, values: List[Any]) -> int:
+        """Insert a row at position 2 (below headers) and push existing rows down
+        
+        This ensures new entries appear at the top of the sheet (reverse chronological order)
+        
+        Args:
+            sheet_name: Name of the sheet
+            values: List of cell values for the new row
+        
+        Returns:
+            Row number where the row was inserted (always 2)
+        """
+        try:
+            # Insert at row 2 (below header row 1)
+            range_name = f"{sheet_name}!A2:Z2"
+            
+            # First, insert a blank row at position 2
+            requests = [{
+                "insertDimension": {
+                    "range": {
+                        "sheetId": self._get_sheet_id(sheet_name),
+                        "dimension": "ROWS",
+                        "startIndex": 1,  # 0-indexed, so 1 = row 2
+                        "endIndex": 2
+                    },
+                    "inheritFromBefore": False
+                }
+            }]
+            
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.spreadsheet_id,
+                body={"requests": requests}
+            ).execute()
+            
+            # Then, write values to the newly inserted row 2
+            body = {
+                'values': [values]
+            }
+            
+            self.service.spreadsheets().values().update(
+                spreadsheetId=self.spreadsheet_id,
+                range=range_name,
+                valueInputOption='USER_ENTERED',
+                body=body
+            ).execute()
+            
+            logger.info(f"Inserted row at top (row 2) in {sheet_name}")
+            return 2
+        except HttpError as e:
+            logger.error(f"Failed to insert row at top of {sheet_name}: {e}")
+            raise
+    
     def append_row(self, sheet_name: str, values: List[Any]) -> int:
-        """Append a row to a sheet and return the row number"""
+        """Append a row to a sheet and return the row number (legacy method)
+        
+        NOTE: For MEMORY_LOG, use insert_row_at_top() instead to maintain reverse chronological order
+        """
         try:
             range_name = f"{sheet_name}!A:A"
             
@@ -282,6 +374,23 @@ class SheetsClient:
             logger.error(f"Failed to upload file to Drive: {e}")
             raise
     
+    def _get_sheet_id(self, sheet_name: str) -> int:
+        """Get the internal sheet ID for a sheet name"""
+        try:
+            result = self.service.spreadsheets().get(
+                spreadsheetId=self.spreadsheet_id
+            ).execute()
+            
+            for sheet in result.get('sheets', []):
+                properties = sheet.get('properties', {})
+                if properties.get('title') == sheet_name:
+                    return properties.get('sheetId')
+            
+            raise ValueError(f"Sheet '{sheet_name}' not found")
+        except Exception as e:
+            logger.error(f"Failed to get sheet ID for {sheet_name}: {e}")
+            raise
+    
     def get_settings(self) -> Dict[str, str]:
         """Get settings from SETTINGS sheet"""
         try:
@@ -296,6 +405,15 @@ class SheetsClient:
         except Exception as e:
             logger.error(f"Failed to get settings: {e}")
             return {}
+    
+    @staticmethod
+    def get_utc_timestamp() -> str:
+        """Get current UTC timestamp in ISO 8601 format
+        
+        Returns:
+            ISO 8601 timestamp string (e.g., '2026-02-17T04:30:15.123456Z')
+        """
+        return datetime.now(timezone.utc).isoformat()
 
 
 # Global instance
