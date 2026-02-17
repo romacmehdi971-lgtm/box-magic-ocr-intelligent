@@ -10,11 +10,13 @@ import uuid
 import traceback
 from typing import Optional, List
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Depends, Query, Header, Security
+from fastapi import FastAPI, HTTPException, Depends, Query, Header, Security, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from googleapiclient.errors import HttpError
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
 
 from .config import (
     API_VERSION,
@@ -68,7 +70,10 @@ app = FastAPI(
     openapi_tags=[
         {"name": "System", "description": "System and health endpoints (PUBLIC)"},
         {"name": "GPT Read-Only", "description": "GPT read-only endpoints for Hub access"},
-        {"name": "Sheets", "description": "Google Sheets operations"},
+        {
+            "name": "Sheets",
+            "description": "Google Sheets operations (DUAL AUTH: IAM token OR X-API-Key)"
+        },
         {"name": "Proposals", "description": "Memory entry proposals with validation"},
         {"name": "Operations", "description": "Operational endpoints (audit, close-day)"}
     ]
@@ -87,10 +92,70 @@ app.add_middleware(
 api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
 
 
-async def verify_api_key(api_key: str = Security(api_key_header)):
-    """Verify API Key for protected endpoints"""
+async def verify_dual_auth(request: Request, api_key: str = Security(api_key_header)):
+    """Verify either IAM token OR API Key (dual-mode auth)
+    
+    Mode A: IAM Authentication (Cloud Run Invoker)
+    - Check Authorization: Bearer <token>
+    - Validate token with Google OAuth2
+    
+    Mode B: API Key Authentication
+    - Check X-API-Key header
+    - Compare with configured API_KEY
+    
+    Returns True if either method succeeds.
+    """
+    correlation_id = str(uuid.uuid4())
+    
+    # MODE A: Check IAM token (Authorization: Bearer)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split("Bearer ")[1]
+        try:
+            # Validate IAM token
+            # In Cloud Run, the audience is the service URL
+            # For local dev, skip validation
+            if os.getenv("ENVIRONMENT") == "production":
+                id_info = id_token.verify_oauth2_token(
+                    token,
+                    google_requests.Request(),
+                    audience=None  # Cloud Run validates automatically
+                )
+                logger.info(f"[{correlation_id}] IAM auth successful: {id_info.get('email', 'unknown')}")
+                return True
+            else:
+                # Dev mode: accept any Bearer token
+                logger.info(f"[{correlation_id}] IAM auth bypassed (dev mode)")
+                return True
+        except Exception as e:
+            logger.warning(f"[{correlation_id}] IAM token validation failed: {e}")
+            # Continue to API Key fallback
+    
+    # MODE B: Check API Key
     if not API_KEY:
         # If API_KEY not configured, allow access (backward compatibility)
+        logger.warning(f"[{correlation_id}] API_KEY not configured - allowing access")
+        return True
+    
+    if api_key == API_KEY:
+        logger.info(f"[{correlation_id}] API Key auth successful")
+        return True
+    
+    # Both methods failed
+    logger.error(f"[{correlation_id}] Authentication failed: no valid IAM token or API Key")
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "authentication_failed",
+            "message": "Authentication required: provide either IAM token (Authorization: Bearer) or API Key (X-API-Key)",
+            "correlation_id": correlation_id
+        }
+    )
+
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    """Legacy API Key only verification (kept for backward compatibility)"""
+    if not API_KEY:
         logger.warning("API_KEY not configured - allowing access")
         return True
     
@@ -264,7 +329,7 @@ async def whoami():
 
 # Protected endpoints (API Key required)
 
-@app.get("/sheets", response_model=SheetsListResponse, tags=["Sheets"], dependencies=[Depends(verify_api_key)])
+@app.get("/sheets", response_model=SheetsListResponse, tags=["Sheets"], dependencies=[Depends(verify_dual_auth)])
 async def list_sheets(sheets: SheetsClient = Depends(get_sheets)):
     """
     List all available sheets in the Hub
@@ -294,7 +359,7 @@ async def list_sheets(sheets: SheetsClient = Depends(get_sheets)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/sheets/{sheet_name}", response_model=SheetDataResponse, tags=["Sheets"], dependencies=[Depends(verify_api_key)])
+@app.get("/sheets/{sheet_name}", response_model=SheetDataResponse, tags=["Sheets"], dependencies=[Depends(verify_dual_auth)])
 async def get_sheet_data(
     sheet_name: str,
     limit: Optional[int] = Query(None, description="Maximum number of rows to return (excluding header)"),

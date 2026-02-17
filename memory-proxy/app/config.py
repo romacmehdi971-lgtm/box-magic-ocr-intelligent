@@ -17,6 +17,7 @@ SERVICE_ACCOUNT_KEY_PATH = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "/ap
 READ_ONLY_MODE = os.environ.get("READ_ONLY_MODE", "false").lower() == "true"
 ENABLE_NOTIFICATIONS = os.environ.get("ENABLE_NOTIFICATIONS", "false").lower() == "true"
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "production")  # production or dev
 
 # Drive Configuration
 ARCHIVES_FOLDER_ID = os.environ.get("ARCHIVES_FOLDER_ID", "")  # Will be read from SETTINGS sheet
@@ -44,7 +45,7 @@ EXPECTED_TABS = [
 ]
 
 # API Configuration
-API_VERSION = "3.0.1"  # Phase 1 complete: sheets fix, UTC timestamps, ACTION architecture
+API_VERSION = "3.0.3"  # Dual-mode auth: IAM OR API-Key for /sheets/*
 API_TITLE = "MCP Memory Proxy"
 API_DESCRIPTION = "REST API for GPT access to IAPF Memory Hub"
 
