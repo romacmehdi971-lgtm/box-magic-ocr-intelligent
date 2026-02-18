@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'mcp_cockpit/Dockerfile.job'
+      - '-t'
+      - 'gcr.io/box-magique-gp-prod/mcp-cockpit:v1.2.1'
+      - '--label'
+      - 'git_commit=ace043a'
+      - '--label'
+      - 'version=1.2.1'
+      - '.'
+images:
+  - 'gcr.io/box-magique-gp-prod/mcp-cockpit:v1.2.1'
+timeout: 1200s
