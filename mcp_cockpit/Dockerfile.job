@@ -29,10 +29,9 @@ WORKDIR /app
 # Copier uniquement le cockpit (isolation stricte)
 COPY mcp_cockpit/ ./mcp_cockpit/
 COPY healthcheck_iapf.py ./
-COPY requirements.txt ./
 
-# Installer dépendances Python
-RUN pip install --no-cache-dir -r requirements.txt
+# Installer dépendances Python (minimal job requirements)
+RUN pip install --no-cache-dir -r mcp_cockpit/requirements_job.txt
 
 # Créer dossiers pour artifacts
 RUN mkdir -p mcp_cockpit/reports mcp_cockpit/snapshots mcp_cockpit/audit_logs
