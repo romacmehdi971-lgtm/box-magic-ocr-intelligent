@@ -44,12 +44,13 @@ class LogEntry(BaseModel):
 
 
 class LogsQueryRequest(BaseModel):
-    """Request for log query"""
-    resource_type: str = Field(..., description="cloud_run_service|cloud_run_job")
-    name: str = Field(..., description="Resource name")
+    """Request for log query (flexible input)"""
+    resource_type: Optional[str] = Field(None, description="cloud_run_service|cloud_run_job")
+    name: Optional[str] = Field(None, description="Resource name")
     time_range_minutes: int = Field(10, ge=1, le=60, description="Time range in minutes (1-60)")
     limit: int = Field(50, ge=1, le=200, description="Max entries (1-200)")
     contains: Optional[str] = Field(None, description="Optional text filter")
+    filter: Optional[str] = Field(None, description="Raw Cloud Logging filter (alternative to resource_type+name)")
 
 
 class LogsQueryResponse(BaseModel):
@@ -107,28 +108,33 @@ def get_region() -> str:
 
 
 def get_service_account_email() -> str:
-    """Get service account email"""
+    """Get service account email from metadata server or ADC"""
+    # Method 1: Try metadata server (most reliable for Cloud Run)
+    try:
+        import requests
+        response = requests.get(
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+            headers={"Metadata-Flavor": "Google"},
+            timeout=1
+        )
+        if response.status_code == 200:
+            return response.text.strip()
+    except Exception:
+        pass
+    
+    # Method 2: Try ADC credentials
     try:
         credentials, _ = default()
         if hasattr(credentials, 'service_account_email'):
             return credentials.service_account_email
+        # For compute credentials, extract from signer_email
+        if hasattr(credentials, 'signer_email'):
+            return credentials.signer_email
     except Exception:
         pass
     
-    # Fallback to gcloud
-    try:
-        result = subprocess.run(
-            ['gcloud', 'config', 'get-value', 'account'],
-            capture_output=True,
-            text=True,
-            timeout=2
-        )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except Exception:
-        pass
-    
-    return os.environ.get("SERVICE_ACCOUNT_EMAIL", "unknown")
+    # Fallback to env var
+    return os.environ.get("SERVICE_ACCOUNT_EMAIL", "default")
 
 
 def get_cloud_run_metadata() -> Dict[str, str]:
@@ -141,8 +147,13 @@ def get_cloud_run_metadata() -> Dict[str, str]:
 
 
 def get_image_digest() -> str:
-    """Get container image digest"""
-    # Try to read from Cloud Run metadata server
+    """Get container image digest from env var or metadata"""
+    # Priority 1: Env var (set at deploy time)
+    digest = os.environ.get("IMAGE_DIGEST", "")
+    if digest and digest != "unknown":
+        return digest
+    
+    # Priority 2: Try to read from metadata server
     try:
         import requests
         response = requests.get(
@@ -157,20 +168,36 @@ def get_image_digest() -> str:
     except Exception:
         pass
     
-    # Fallback to env var
-    return os.environ.get("IMAGE_DIGEST", "unknown")
+    # Return placeholder that indicates need for env var
+    return "sha256:not-set-use-IMAGE_DIGEST-env-var"
 
 
-def determine_auth_mode() -> str:
-    """Determine authentication mode"""
-    has_api_key = bool(os.environ.get("API_KEY"))
-    has_iam = os.environ.get("ENVIRONMENT") == "production"
+def determine_auth_mode(request_headers: dict = None) -> str:
+    """Determine authentication mode based on env and runtime"""
+    # Check if API_KEY is configured
+    has_api_key_env = bool(os.environ.get("API_KEY"))
     
-    if has_api_key and has_iam:
+    # Check if running on Cloud Run (IAM-enabled by default)
+    is_cloud_run = bool(os.environ.get("K_SERVICE"))
+    
+    # If request headers provided, check active auth
+    if request_headers:
+        has_api_key_header = bool(request_headers.get("x-api-key"))
+        has_iam_header = bool(request_headers.get("authorization"))
+        
+        if has_api_key_header and has_iam_header:
+            return "DUAL"
+        elif has_api_key_header:
+            return "API_KEY"
+        elif has_iam_header:
+            return "IAM"
+    
+    # Static determination
+    if has_api_key_env and is_cloud_run:
         return "DUAL"
-    elif has_api_key:
+    elif has_api_key_env:
         return "API_KEY"
-    elif has_iam:
+    elif is_cloud_run:
         return "IAM"
     else:
         return "NONE"
@@ -185,10 +212,11 @@ async def whoami():
     
     Returns precise runtime identity including:
     - GCP project and region
-    - Service account email
-    - Cloud Run service/revision
-    - Container image digest
-    - Authentication mode
+    - Service account email (from metadata server)
+    - Cloud Run service/revision (from K_* env vars)
+    - Container image digest (from IMAGE_DIGEST env var)
+    - Authentication mode (IAM/API_KEY/DUAL)
+    - Version (from VERSION env var)
     """
     correlation_id = str(uuid.uuid4())
     logger.info(f"[{correlation_id}] GET /infra/whoami")
@@ -200,7 +228,7 @@ async def whoami():
         metadata = get_cloud_run_metadata()
         image_digest = get_image_digest()
         auth_mode = determine_auth_mode()
-        version = os.environ.get("API_VERSION", os.environ.get("BUILD_VERSION", "unknown"))
+        version = os.environ.get("VERSION", os.environ.get("BUILD_VERSION", os.environ.get("API_VERSION", "v3.1.0-p0")))
         
         response = WhoAmIResponse(
             project_id=project_id,
@@ -258,27 +286,41 @@ async def query_logs(request: LogsQueryRequest):
         time_ago = datetime.now(timezone.utc) - timedelta(minutes=request.time_range_minutes)
         time_filter = f'timestamp>="{time_ago.isoformat()}"'
         
-        if request.resource_type == "cloud_run_service":
-            resource_filter = f'resource.type="cloud_run_revision" AND resource.labels.service_name="{request.name}"'
-        elif request.resource_type == "cloud_run_job":
-            resource_filter = f'resource.type="cloud_run_job" AND resource.labels.job_name="{request.name}"'
+        # Option 1: Use raw filter if provided
+        if request.filter:
+            filter_str = f'{request.filter} AND {time_filter}'
+        # Option 2: Build from resource_type + name
+        elif request.resource_type and request.name:
+            if request.resource_type == "cloud_run_service":
+                resource_filter = f'resource.type="cloud_run_revision" AND resource.labels.service_name="{request.name}"'
+            elif request.resource_type == "cloud_run_job":
+                resource_filter = f'resource.type="cloud_run_job" AND resource.labels.job_name="{request.name}"'
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "correlation_id": correlation_id,
+                        "error": "invalid_resource_type",
+                        "message": f"Invalid resource_type: {request.resource_type}. Must be 'cloud_run_service' or 'cloud_run_job'"
+                    }
+                )
+            
+            filter_str = f'{resource_filter} AND {time_filter}'
+            
+            # Add text filter if provided
+            if request.contains:
+                # Escape quotes in contains string
+                contains_escaped = request.contains.replace('"', '\\"')
+                filter_str += f' AND jsonPayload.message=~"{contains_escaped}"'
         else:
             raise HTTPException(
                 status_code=400,
                 detail={
                     "correlation_id": correlation_id,
-                    "error": "invalid_resource_type",
-                    "message": f"Invalid resource_type: {request.resource_type}. Must be 'cloud_run_service' or 'cloud_run_job'"
+                    "error": "invalid_request",
+                    "message": "Must provide either 'filter' OR both 'resource_type' and 'name'"
                 }
             )
-        
-        filter_str = f'{resource_filter} AND {time_filter}'
-        
-        # Add text filter if provided
-        if request.contains:
-            # Escape quotes in contains string
-            contains_escaped = request.contains.replace('"', '\\"')
-            filter_str += f' AND jsonPayload.message=~"{contains_escaped}"'
         
         logger.info(f"[{correlation_id}] Log filter: {filter_str}")
         
