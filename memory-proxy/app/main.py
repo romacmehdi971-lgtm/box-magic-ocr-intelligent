@@ -48,6 +48,8 @@ from .models import (
 from .sheets import get_sheets_client, SheetsClient
 from .proposals import get_proposal_manager, ProposalManager
 from .validation import get_validation_engine, ValidationEngine
+from . import infra
+from . import hub
 
 # Configure logging
 logging.basicConfig(
@@ -87,6 +89,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Include P0 routers (Infrastructure + Hub Memory Writer)
+app.include_router(infra.router)
+app.include_router(hub.router)
 
 # API Key security scheme
 api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
