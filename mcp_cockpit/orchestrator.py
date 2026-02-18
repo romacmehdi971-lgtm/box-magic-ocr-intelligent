@@ -43,6 +43,28 @@ class IAPFOrchestrator:
         cloudrun_status = self.cloudrun.status()
         cloudrun_logs = self.cloudrun.logs_export(hours=1, max_lines=50)
         
+        # 1b. ProxyTool Health Check & Validation (ORION)
+        logger.info("Testing ProxyTool connectivity...")
+        proxy_test_results = {}
+        try:
+            # Test 1: Health check
+            proxy_health = self.proxy.health_check()
+            proxy_test_results["health"] = proxy_health
+            logger.info(f"ProxyTool health: HTTP {proxy_health.get('http_status')}")
+            
+            # Test 2: GET /sheets/SETTINGS?limit=10
+            settings_test = self.proxy.get_sheet_data("SETTINGS", limit=10)
+            proxy_test_results["settings_test"] = settings_test
+            logger.info(f"ProxyTool SETTINGS: HTTP {settings_test.get('http_status')}, rows={settings_test.get('row_count', 0)}")
+            
+            # Test 3: GET /sheets/NOPE?limit=1 (expected 404)
+            nope_test = self.proxy.get_sheet_data("NOPE", limit=1)
+            proxy_test_results["nope_test"] = nope_test
+            logger.info(f"ProxyTool NOPE: HTTP {nope_test.get('http_status')}, correlation_id={nope_test.get('correlation_id')}")
+        except Exception as e:
+            logger.error(f"ProxyTool tests failed: {e}")
+            proxy_test_results["error"] = str(e)
+        
         # 2. GitHub Audits
         logger.info("Auditing GitHub repositories...")
         github_snapshot = self.github.snapshot()
