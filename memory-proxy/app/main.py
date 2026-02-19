@@ -90,6 +90,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# READ_ONLY_MODE middleware: block POST/PUT/PATCH/DELETE if READ_ONLY_MODE=true
+@app.middleware("http")
+async def read_only_middleware(request: Request, call_next):
+    """
+    Block write operations (POST, PUT, PATCH, DELETE) when READ_ONLY_MODE is enabled.
+    This ensures audit-safe operation: clients can only READ data, never modify it.
+    """
+    import os
+    read_only = os.environ.get("READ_ONLY_MODE", "false").lower() == "true"
+    
+    # Allow all GET requests and OPTIONS (CORS)
+    if request.method in ["GET", "HEAD", "OPTIONS"]:
+        response = await call_next(request)
+        return response
+    
+    # If READ_ONLY_MODE is true, block write methods
+    if read_only and request.method in ["POST", "PUT", "PATCH", "DELETE"]:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "detail": "Write operations are disabled (READ_ONLY_MODE=true)",
+                "read_only_mode": True,
+                "method_attempted": request.method,
+                "path": str(request.url.path),
+                "audit_safe": True
+            }
+        )
+    
+    # Otherwise, proceed normally
+    response = await call_next(request)
+    return response
+
 # Include P0 routers (Infrastructure + Hub Memory Writer)
 app.include_router(infra.router)
 app.include_router(hub.router)
@@ -769,6 +801,18 @@ async def get_documentation():
         },
         {
             "method": "GET",
+            "path": "/whoami",
+            "description": "Get service identity and configuration",
+            "auth_required": False
+        },
+        {
+            "method": "GET",
+            "path": "/infra/whoami",
+            "description": "Get infrastructure metadata (version, digest, flags)",
+            "auth_required": True
+        },
+        {
+            "method": "GET",
             "path": "/sheets",
             "description": "List all available sheets",
             "auth_required": True
@@ -776,37 +820,13 @@ async def get_documentation():
         {
             "method": "GET",
             "path": "/sheets/{sheet_name}",
-            "description": "Get data from a specific sheet",
-            "auth_required": True
-        },
-        {
-            "method": "POST",
-            "path": "/propose",
-            "description": "Propose a new memory entry (requires human validation)",
+            "description": "Get data from a specific sheet (supports ?limit= for pagination)",
             "auth_required": True
         },
         {
             "method": "GET",
             "path": "/proposals",
             "description": "List all proposals (optionally filter by status)",
-            "auth_required": True
-        },
-        {
-            "method": "POST",
-            "path": "/proposals/{proposal_id}/validate",
-            "description": "Validate (approve/reject) a proposal",
-            "auth_required": True
-        },
-        {
-            "method": "POST",
-            "path": "/close-day",
-            "description": "Close the day (export snapshot, upload to Drive, log)",
-            "auth_required": True
-        },
-        {
-            "method": "POST",
-            "path": "/audit",
-            "description": "Run autonomous global audit",
             "auth_required": True
         },
         {

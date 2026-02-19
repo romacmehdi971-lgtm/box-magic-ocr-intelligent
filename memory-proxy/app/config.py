@@ -45,13 +45,14 @@ EXPECTED_TABS = [
 ]
 
 # API Configuration
-API_VERSION = "3.0.5"  # Fix: Add validation ge=1, le=500, default=50 for limit param
+# Version is read from VERSION env var (set at deployment) or falls back to hardcoded value
+API_VERSION = os.environ.get("VERSION", "3.0.5")
 API_TITLE = "MCP Memory Proxy"
 API_DESCRIPTION = "REST API for GPT access to IAPF Memory Hub"
 
-# Build/Deployment Information
-BUILD_VERSION = "3.0.1"
-GIT_COMMIT_SHA = "6731d42"  # Updated with each deployment
+# Build/Deployment Information (fallback values, prefer env vars)
+BUILD_VERSION = os.environ.get("BUILD_VERSION", "3.0.1")
+GIT_COMMIT_SHA = os.environ.get("GIT_COMMIT", "6731d42")
 
 # Security
 ALLOWED_ORIGINS = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
