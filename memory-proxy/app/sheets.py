@@ -143,7 +143,7 @@ class SheetsClient:
         try:
             # If limit is specified, use a bounded range
             if limit is not None and limit > 0:
-                # +1 for header row
+                # +1 for header row, read a bit more to ensure we get enough data
                 max_row = limit + 1
                 range_name = f"{sheet_name}!A1:Z{max_row}"
                 logger.info(f"[{correlation_id}] Reading {sheet_name} with limit={limit}, range={range_name}")
@@ -158,12 +158,29 @@ class SheetsClient:
             ).execute()
             
             values = result.get('values', [])
-            logger.info(f"[{correlation_id}] Retrieved {len(values)} rows from {sheet_name}")
+            logger.info(f"[{correlation_id}] Retrieved {len(values)} total rows from {sheet_name}")
             
-            if not include_headers and values:
-                return values[1:]
+            # Handle include_headers and limit
+            if not values:
+                return []
             
-            return values
+            if include_headers:
+                # Return headers + limited data rows
+                if limit is not None and limit > 0 and len(values) > 1:
+                    # Header row + limit data rows
+                    result_rows = values[:limit + 1]
+                    logger.info(f"[{correlation_id}] Returning {len(result_rows)} rows (1 header + {len(result_rows)-1} data rows)")
+                    return result_rows
+                else:
+                    return values
+            else:
+                # Exclude headers, return only data rows with limit
+                data_rows = values[1:] if len(values) > 1 else []
+                if limit is not None and limit > 0:
+                    limited_data = data_rows[:limit]
+                    logger.info(f"[{correlation_id}] Returning {len(limited_data)} data rows (no headers)")
+                    return limited_data
+                return data_rows
         except HttpError as e:
             # Extract error message from Google API
             error_message = str(e)
