@@ -10,6 +10,11 @@ function IAPF_uiBuildMenu_() {
 
   // --- Sous-menu MCP Cockpit (attaché au menu IAPF Memory)
   const mcpMenu = ui.createMenu("MCP Cockpit")
+    .addItem("🔌 Test Connection", "MCP_COCKPIT_testConnection")
+    .addItem("🔍 GET /infra/whoami", "MCP_COCKPIT_getWhoami")
+    .addItem("📊 Test Pagination", "MCP_COCKPIT_testPagination")
+    .addItem("🛠️ HTTP GET Tool", "MCP_COCKPIT_httpGetTool")
+    .addSeparator()
     .addItem("1️⃣ Initialiser Journée", "MCP_ACTION_initializeDay")
     .addItem("2️⃣ Clôture Journée", "MCP_ACTION_closeDay")
     .addSeparator()

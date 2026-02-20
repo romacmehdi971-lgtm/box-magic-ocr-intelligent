@@ -1,0 +1,20 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--platform=linux/amd64'
+      - '--build-arg'
+      - 'VERSION=v3.1.5-infra-config-fix'
+      - '--build-arg'
+      - 'GIT_COMMIT=60d53b8'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:v3.1.5-infra-config-fix'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:latest'
+      - 'memory-proxy'
+images:
+  - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:v3.1.5-infra-config-fix'
+  - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:latest'
+options:
+  machineType: 'N1_HIGHCPU_8'
+timeout: '600s'
