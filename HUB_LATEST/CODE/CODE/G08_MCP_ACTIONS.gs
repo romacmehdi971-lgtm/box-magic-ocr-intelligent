@@ -473,31 +473,18 @@ function MCP_IMPL_verifyDocVsCode() {
   }
 }
 
-// 5️⃣ Déploiement Automatisé (SAFE Mode)
+// 5️⃣ Déploiement Automatisé
 function MCP_IMPL_automatedDeploy() {
   const ui = SpreadsheetApp.getUi();
 
-  // SAFE MODE: Read deployment mode from SETTINGS
-  let deployMode = "DRY_RUN"; // Default safe mode
-  try {
-    if (typeof IAPF_getConfig_ === "function") {
-      const cfg = IAPF_getConfig_("mcp_deploy_mode");
-      if (cfg && ["PRODUCTION", "STAGING", "DRY_RUN"].indexOf(String(cfg).toUpperCase()) >= 0) {
-        deployMode = String(cfg).toUpperCase();
-      }
-    }
-  } catch (e) {}
-
   const response = ui.alert(
-    "MCP — Déploiement Automatisé (SAFE)",
+    "MCP — Déploiement Automatisé",
     "Cette action va :\n" +
       "• Déclencher un Cloud Run Job de déploiement\n" +
       "• Synchroniser HUB + BOX2026\n" +
       "• Enregistrer une entrée dans MEMORY_LOG\n\n" +
-      "Mode actuel : " + deployMode + "\n" +
-      (deployMode === "DRY_RUN" ? "✅ Mode SAFE : aucune action destructive\n" : "") +
-      (deployMode === "PRODUCTION" ? "⚠️ ATTENTION : déploiement en PRODUCTION\n" : "") +
-      "\nContinuer ?",
+      "⚠️ ATTENTION : déploiement en PRODUCTION\n\n" +
+      "Continuer ?",
     ui.ButtonSet.YES_NO
   );
 
@@ -509,26 +496,21 @@ function MCP_IMPL_automatedDeploy() {
   try {
     ui.alert(
       "MCP — Déploiement",
-      "ℹ️ Action en mode " + deployMode + "\n\n" +
+      "⚠️ Action non implémentée.\n\n" +
         "Pour activer cette fonction :\n" +
         "1) Configure un Cloud Run Job 'mcp-deploy-iapf'\n" +
-        "2) Ajoute les settings dans SETTINGS :\n" +
-        "   - mcp_project_id\n" +
-        "   - mcp_region\n" +
-        "   - mcp_job_deploy\n" +
-        "   - mcp_deploy_mode (PRODUCTION/STAGING/DRY_RUN)\n" +
-        "3) Implémente l'appel API dans G08_MCP_ACTIONS.gs\n\n" +
-        "Note : Mode DRY_RUN = lecture seule, aucune action destructive",
+        "2) Ajoute les settings dans SETTINGS : mcp_project_id, mcp_region, mcp_job_deploy\n" +
+        "3) Implémente l'appel API dans G08_MCP_ACTIONS.gs",
       ui.ButtonSet.OK
     );
 
     if (typeof IAPF_appendMemoryEntry_ === "function") {
       IAPF_appendMemoryEntry_({
         type: "CONSTAT",
-        title: "MCP — Déploiement automatisé (non implémenté, mode " + deployMode + ")",
-        details: "Nécessite Cloud Run Job + settings GCP. Mode actuel : " + deployMode,
+        title: "MCP — Déploiement automatisé (non implémenté)",
+        details: "Nécessite Cloud Run Job + settings GCP",
         source: "MCP_COCKPIT",
-        tags: "MCP;DEPLOY;SAFE"
+        tags: "MCP;DEPLOY"
       });
     }
 
