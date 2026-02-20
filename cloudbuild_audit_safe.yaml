@@ -1,0 +1,13 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--platform=linux/amd64'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:v3.1.3-audit-safe'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:latest'
+      - 'memory-proxy'
+images:
+  - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:v3.1.3-audit-safe'
+  - 'gcr.io/${PROJECT_ID}/mcp-memory-proxy:latest'

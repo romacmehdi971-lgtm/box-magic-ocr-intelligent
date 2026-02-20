@@ -28,7 +28,9 @@ from .config import (
     MEMORY_LOG_SHEET,
     SETTINGS_SHEET,
     API_KEY,
-    API_KEY_HEADER
+    API_KEY_HEADER,
+    GCP_PROJECT_ID,
+    GCP_REGION
 )
 from .models import (
     HealthCheckResponse,
@@ -808,8 +810,8 @@ async def get_documentation():
         {
             "method": "GET",
             "path": "/infra/whoami",
-            "description": "Get infrastructure metadata (version, digest, flags)",
-            "auth_required": True
+            "description": "Get infrastructure metadata (project, region, revision, version, flags)",
+            "auth_required": False
         },
         {
             "method": "GET",
@@ -871,7 +873,16 @@ async def get_documentation():
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
+    import os
+    
     logger.info(f"Starting {API_TITLE} v{API_VERSION}")
+    logger.info(f"GIT_COMMIT={os.environ.get('GIT_COMMIT', 'unknown')}")
+    logger.info(f"BUILD_VERSION={os.environ.get('BUILD_VERSION', 'unknown')}")
+    logger.info(f"READ_ONLY_MODE={os.environ.get('READ_ONLY_MODE', 'false')}")
+    logger.info(f"ENABLE_ACTIONS={os.environ.get('ENABLE_ACTIONS', 'false')}")
+    logger.info(f"DRY_RUN_MODE={os.environ.get('DRY_RUN_MODE', 'true')}")
+    logger.info(f"GCP_PROJECT_ID={os.environ.get('GCP_PROJECT_ID', 'unknown')}")
+    logger.info(f"GCP_REGION={os.environ.get('GCP_REGION', 'unknown')}")
     
     # Test Sheets connection
     try:
