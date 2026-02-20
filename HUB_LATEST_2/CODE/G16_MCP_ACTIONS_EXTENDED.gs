@@ -466,46 +466,6 @@ function MCP_ACTION_webSearch() {
   }
 }
 
-function MCP_ACTION_webFetch() {
-  const ui = SpreadsheetApp.getUi();
-  
-  const urlResp = ui.prompt(
-    "MCP Web — Fetch",
-    "Entrer l'URL à récupérer:\n(ex: https://mcp-memory-proxy-522732657254.us-central1.run.app/openapi.json)",
-    ui.ButtonSet.OK_CANCEL
-  );
-  
-  if (urlResp.getSelectedButton() !== ui.Button.OK) return;
-  
-  const url = urlResp.getResponseText().trim();
-  if (!url) {
-    ui.alert("Error", "URL requis", ui.ButtonSet.OK);
-    return;
-  }
-  
-  try {
-    const response = MCP_HTTP.webFetch(url, {method: "GET", max_size: 1048576});
-    
-    if (response.ok) {
-      const contentSize = response.content ? response.content.length : 0;
-      ui.alert(
-        "MCP Web — Fetch OK",
-        `run_id: ${response.run_id}\n` +
-        `URL: ${url}\n` +
-        `Status: ${response.status_code}\n` +
-        `Content-Type: ${response.content_type}\n` +
-        `Taille: ${contentSize} bytes\n\n` +
-        `Voir MEMORY_LOG pour contenu`,
-        ui.ButtonSet.OK
-      );
-    } else {
-      ui.alert("Error", response.error || "Unknown error", ui.ButtonSet.OK);
-    }
-  } catch (e) {
-    ui.alert("Error", String(e), ui.ButtonSet.OK);
-  }
-}
-
 // ============================================================================
 // TERMINAL RUNNER ACTION (GOVERNED)
 // ============================================================================

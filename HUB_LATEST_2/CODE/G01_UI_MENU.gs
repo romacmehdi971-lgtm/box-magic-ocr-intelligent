@@ -49,7 +49,6 @@ function IAPF_uiBuildMenu_() {
     .addItem("✅ Secret Manager — Create (APPLY)", "MCP_ACTION_secretCreateApply")
     .addSeparator()
     .addItem("🌐 Web — Search", "MCP_ACTION_webSearch")
-    .addItem("📥 Web — Fetch", "MCP_ACTION_webFetch")
     .addSeparator()
     .addItem("💻 Terminal — Run (READ_ONLY)", "MCP_ACTION_terminalRunReadOnly");
 

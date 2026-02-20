@@ -1,0 +1,28 @@
+steps:
+  # Build the Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '--platform=linux/amd64'
+      - '-t'
+      - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:phase2-${SHORT_SHA}'
+      - '-t'
+      - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:latest'
+      - '.'
+
+  # Push both tags
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:phase2-${SHORT_SHA}'
+  
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:latest'
+
+images:
+  - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:phase2-${SHORT_SHA}'
+  - 'gcr.io/box-magique-gp-prod/mcp-memory-proxy:latest'
+
+timeout: 1200s

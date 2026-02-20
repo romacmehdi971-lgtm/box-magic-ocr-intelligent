@@ -34,3 +34,4 @@ Thumbs.db
 # Temporary
 tmp/
 temp/
+memory-proxy/sa-key.json

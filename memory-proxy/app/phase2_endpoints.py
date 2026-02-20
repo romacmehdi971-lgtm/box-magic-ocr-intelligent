@@ -12,6 +12,7 @@ import json
 from .governance import generate_run_id, ActionMode, should_apply_action, build_governed_response
 from .redaction import redact_response, redact_secret_value_always
 from .config import get_settings
+from . import drive_client
 
 router = APIRouter()
 settings = get_settings()
@@ -83,18 +84,23 @@ async def drive_tree(
     run_id = generate_run_id("drive", "tree")
     
     try:
-        # TODO: Implement actual Google Drive API call
-        # For now, return mock response structure
+        # Real Google Drive API call via drive_client
+        tree_data = drive_client.list_folder_tree(
+            folder_id=folder_id,
+            max_depth=max_depth,
+            limit=limit
+        )
+        
         response = {
             "ok": True,
             "run_id": run_id,
-            "folder_id": folder_id,
-            "folder_name": "ARCHIVES",  # Mock
-            "total_items": 0,
-            "tree": [],
-            "truncated": False,
+            "folder_id": tree_data.get("folder_id"),
+            "folder_name": tree_data.get("folder_name"),
+            "total_items": tree_data.get("total_items", 0),
+            "tree": tree_data.get("tree", []),
+            "truncated": tree_data.get("total_items", 0) >= limit,
             "pagination": {"next_page_token": None},
-            "message": "Drive API integration pending - returning mock structure"
+            "error": tree_data.get("error")
         }
         
         return redact_response(response)
@@ -112,26 +118,13 @@ async def drive_file_metadata(
     run_id = generate_run_id("drive", "metadata")
     
     try:
-        # TODO: Implement actual Google Drive API call
+        # Real Google Drive API call via drive_client
+        metadata = drive_client.get_file_metadata(file_id)
+        
         response = {
             "ok": True,
             "run_id": run_id,
-            "file": {
-                "id": file_id,
-                "name": "mock_file.txt",
-                "mimeType": "text/plain",
-                "size": 1234,
-                "createdTime": "2026-02-20T10:00:00Z",
-                "modifiedTime": "2026-02-20T11:00:00Z",
-                "owners": [{"emailAddress": "[REDACTED_EMAIL]"}],
-                "parents": [],
-                "capabilities": {
-                    "canEdit": False,
-                    "canDownload": True,
-                    "canDelete": False
-                }
-            },
-            "message": "Drive API integration pending - returning mock structure"
+            "file": metadata
         }
         
         return redact_response(response)
@@ -160,15 +153,22 @@ async def drive_search(
         limit = 200
     
     try:
-        # TODO: Implement actual Google Drive API call
+        # Real Google Drive API call via drive_client
+        search_data = drive_client.search_files(
+            query=query,
+            folder_id=folder_id,
+            limit=limit
+        )
+        
         response = {
             "ok": True,
             "run_id": run_id,
-            "query": query,
-            "total_results": 0,
-            "files": [],
+            "query": search_data.get("query"),
+            "folder_id": search_data.get("folder_id"),
+            "total_results": search_data.get("total_results", 0),
+            "files": search_data.get("files", []),
             "next_page_token": None,
-            "message": "Drive API integration pending - returning mock structure"
+            "error": search_data.get("error")
         }
         
         return redact_response(response)
