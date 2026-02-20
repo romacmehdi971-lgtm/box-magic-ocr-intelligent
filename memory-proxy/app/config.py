@@ -93,3 +93,52 @@ DRY_RUN_MODE = os.environ.get("DRY_RUN_MODE", "true").lower() == "true"
 # GCP Project Configuration
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "box-magique-gp-prod")
 GCP_REGION = os.environ.get("GCP_REGION", "us-central1")
+
+# ============================================================================
+# PHASE 2 CONFIGURATION - Extension contrôlée des accès MCP
+# ============================================================================
+
+# MCP Environment
+MCP_ENVIRONMENT = os.environ.get("MCP_ENVIRONMENT", "STAGING")  # STAGING or PRODUCTION
+MCP_GCP_PROJECT_ID = os.environ.get("MCP_GCP_PROJECT_ID", GCP_PROJECT_ID)
+MCP_GCP_REGION = os.environ.get("MCP_GCP_REGION", GCP_REGION)
+MCP_CLOUD_RUN_SERVICE = os.environ.get("MCP_CLOUD_RUN_SERVICE", "mcp-memory-proxy")
+
+# Web Access Configuration
+MCP_WEB_ALLOWED_DOMAINS = os.environ.get(
+    "MCP_WEB_ALLOWED_DOMAINS",
+    "developers.google.com,cloud.google.com,googleapis.dev"
+).split(",")
+MCP_WEB_QUOTA_DAILY = int(os.environ.get("MCP_WEB_QUOTA_DAILY", "100"))
+
+# Terminal Configuration
+MCP_TERMINAL_QUOTA_DAILY_READ = int(os.environ.get("MCP_TERMINAL_QUOTA_DAILY_READ", "50"))
+MCP_TERMINAL_QUOTA_DAILY_WRITE = int(os.environ.get("MCP_TERMINAL_QUOTA_DAILY_WRITE", "10"))
+
+# Settings wrapper
+class Settings:
+    # Existing config
+    GOOGLE_SHEET_ID = GOOGLE_SHEET_ID
+    SERVICE_ACCOUNT_KEY_PATH = SERVICE_ACCOUNT_KEY_PATH
+    READ_ONLY_MODE = READ_ONLY_MODE
+    ENABLE_ACTIONS = ENABLE_ACTIONS
+    DRY_RUN_MODE = DRY_RUN_MODE
+    API_VERSION = API_VERSION
+    API_KEY = API_KEY
+    GCP_PROJECT_ID = GCP_PROJECT_ID
+    GCP_REGION = GCP_REGION
+    
+    # Phase 2 config
+    MCP_ENVIRONMENT = MCP_ENVIRONMENT
+    MCP_GCP_PROJECT_ID = MCP_GCP_PROJECT_ID
+    MCP_GCP_REGION = MCP_GCP_REGION
+    MCP_CLOUD_RUN_SERVICE = MCP_CLOUD_RUN_SERVICE
+    MCP_WEB_ALLOWED_DOMAINS = MCP_WEB_ALLOWED_DOMAINS
+    MCP_WEB_QUOTA_DAILY = MCP_WEB_QUOTA_DAILY
+    MCP_TERMINAL_QUOTA_DAILY_READ = MCP_TERMINAL_QUOTA_DAILY_READ
+    MCP_TERMINAL_QUOTA_DAILY_WRITE = MCP_TERMINAL_QUOTA_DAILY_WRITE
+
+
+def get_settings():
+    """Get settings instance"""
+    return Settings()

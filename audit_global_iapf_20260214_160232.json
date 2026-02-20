@@ -1,0 +1,223 @@
+{
+  "meta": {
+    "timestamp": "2026-02-14T16:02:31.905648",
+    "version": "1.0.0",
+    "mode": "PROPOSAL_FIRST"
+  },
+  "sections": {
+    "ocr_repo1": {
+      "structure": {
+        "files_present": [
+          "main.py",
+          "ocr_engine.py",
+          "requirements.txt",
+          "Dockerfile",
+          "config/config.yaml"
+        ],
+        "files_missing": [],
+        "dirs_present": [
+          "levels",
+          "memory",
+          "connectors",
+          "utils",
+          "mcp_cockpit"
+        ],
+        "dirs_missing": []
+      },
+      "pipeline": {
+        "levels": {
+          "level1": {
+            "exists": true,
+            "size": 17749,
+            "has_process_method": true,
+            "has_confidence_scoring": true,
+            "has_field_extraction": true
+          },
+          "level2": {
+            "exists": true,
+            "size": 30287,
+            "has_process_method": true,
+            "has_confidence_scoring": true,
+            "has_field_extraction": true
+          },
+          "level3": {
+            "exists": true,
+            "size": 16804,
+            "has_process_method": true,
+            "has_confidence_scoring": true,
+            "has_field_extraction": true
+          }
+        },
+        "flow": "sequential",
+        "memory_integration": true
+      },
+      "extraction": {
+        "document_types": [],
+        "field_extraction": {},
+        "scoring_system": false,
+        "fallback_vision": false,
+        "has_type_detection": true,
+        "source_separation": true
+      },
+      "governance": {
+        "read_only_enforced": true,
+        "no_sheets_write": true,
+        "no_drive_write": false,
+        "json_output_only": true,
+        "has_governance_markers": true
+      },
+      "cloudrun": {
+        "dockerfile_exists": true,
+        "fastapi_detected": true,
+        "health_endpoint": true,
+        "ocr_endpoint": true
+      }
+    },
+    "hub_memory": {
+      "sheets": {
+        "expected": [
+          "SETTINGS",
+          "MEMORY_LOG",
+          "SNAPSHOT_ACTIVE",
+          "REGLES_DE_GOUVERNANCE",
+          "ARCHITECTURE_GLOBALE",
+          "CARTOGRAPHIE_APPELS",
+          "DEPENDANCES_SCRIPTS",
+          "CONFLITS_DETECTES",
+          "RISQUES",
+          "LOGS"
+        ],
+        "present": [
+          "SETTINGS",
+          "MEMORY_LOG",
+          "SNAPSHOT_ACTIVE",
+          "REGLES_DE_GOUVERNANCE",
+          "ARCHITECTURE_GLOBALE",
+          "CARTOGRAPHIE_APPELS",
+          "DEPENDANCES_SCRIPTS",
+          "TRIGGERS_ET_TIMERS",
+          "FLUX_PIPELINE_DOCUMENT",
+          "INTERACTIONS_CLOUDRUN_APPSCRIPT",
+          "CONFLITS_DETECTES",
+          "RISQUES",
+          "ELEMENTS_OBSOLETES",
+          "DIAGNOSTICS_STANDARDS",
+          "ERRORS",
+          "DRIVE_INVENTORY",
+          "DRIVE_GOV_CHECK",
+          "LOGS"
+        ],
+        "missing": [],
+        "extra": [
+          "TRIGGERS_ET_TIMERS",
+          "FLUX_PIPELINE_DOCUMENT",
+          "INTERACTIONS_CLOUDRUN_APPSCRIPT",
+          "ELEMENTS_OBSOLETES",
+          "DIAGNOSTICS_STANDARDS",
+          "ERRORS",
+          "DRIVE_INVENTORY",
+          "DRIVE_GOV_CHECK"
+        ]
+      },
+      "memory_log": {
+        "row_count": 0,
+        "column_count": 0,
+        "header": [],
+        "expected_columns": [
+          "timestamp",
+          "event_type",
+          "source",
+          "entity_id",
+          "action",
+          "status",
+          "metadata_json"
+        ],
+        "structure_valid": false
+      },
+      "snapshot": {
+        "row_count": 0,
+        "column_count": 0,
+        "last_snapshot_date": "2026-02-13T22:19:16.447Z"
+      },
+      "risks": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "conflicts": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "cartography": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "dependencies": {
+        "row_count": 0,
+        "column_count": 0
+      }
+    },
+    "box2026_crm": {
+      "sheets": {
+        "expected": [
+          "CONFIG",
+          "INDEX_GLOBAL",
+          "LOGS_SYSTEM",
+          "COMPTABILITE",
+          "CRM_CLIENTS",
+          "CRM_DEVIS",
+          "CRM_DEVIS_LIGNES",
+          "CRM_FACTURES",
+          "CRM_EVENTS"
+        ],
+        "present": [
+          "CONFIG",
+          "INDEX_GLOBAL",
+          "LOGS_SYSTEM",
+          "COMPTABILITE",
+          "IA_SUPPLIERS",
+          "IA_MEMORY",
+          "CRM_CLIENTS",
+          "CRM_DEVIS",
+          "CRM_DEVIS_LIGNES",
+          "CRM_FACTURES",
+          "CRM_EVENTS"
+        ],
+        "missing": []
+      },
+      "config": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "index": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "devis": {
+        "row_count": 0,
+        "column_count": 0
+      },
+      "factures": {
+        "row_count": 0,
+        "column_count": 0
+      }
+    }
+  },
+  "proposals": [
+    {
+      "category": "HUB",
+      "description": "MEMORY_LOG vide - initialiser avec événements système",
+      "priority": "medium",
+      "timestamp": "2026-02-14T16:02:32.153051"
+    }
+  ],
+  "corrections": [],
+  "risks": [],
+  "conflicts": [],
+  "stats": {
+    "sections_count": 3,
+    "proposals_count": 1,
+    "corrections_count": 0,
+    "risks_count": 0,
+    "conflicts_count": 0
+  }
+}

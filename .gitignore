@@ -1,86 +1,36 @@
+# Exports Hub sensibles
+IAPF_HUB_EXPORT_*.zip
+HUB_SHEET_*.xlsx
+HUB_CODE_*.zip
+*_EXPORT_*.zip
+
+# Credentials
+*.key
+*.json.secret
+credentials.json
+service-account.json
+
 # Python
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual environments
+.pytest_cache/
 venv/
 env/
-ENV/
-env.bak/
-venv.bak/
 
-# IDE
+# IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-
-# Configuration locale
-config/*.local
-config/google_credentials.json
-*.yaml.local
-
-# Memory store (contient données sensibles)
-memory/rules.json
-
-# Logs
-*.log
-logs/
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Tests
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-
-# Documents de test (privés)
-documents/
-tests/fixtures/*.pdf
-tests/fixtures/*.png
+# Logs
+*.log
 
 # Temporary
 tmp/
 temp/
-*.tmp
-
-# === SECRETS (NE JAMAIS COMMIT) ===
-*.json
-**/*.json
-config/google_credentials.json
-
-# MCP Cockpit - Artifacts générés
-mcp_cockpit/reports/healthcheck_*.md
-mcp_cockpit/reports/snapshot_*.json
-mcp_cockpit/reports/audit_log_*.json
-mcp_cockpit/snapshots/*.json
-mcp_cockpit/audit_logs/*.json
-
-# Credentials et secrets
-credentials.json
-**/credentials.json
-secrets.*
-**/secrets.*

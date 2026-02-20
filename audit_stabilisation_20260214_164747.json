@@ -1,0 +1,603 @@
+{
+  "meta": {
+    "timestamp": "2026-02-14T16:47:47.606862",
+    "mode": "PROPOSAL_ONLY",
+    "version": "1.0.0"
+  },
+  "audits": {
+    "ocr_patches": {
+      "timestamp": "2026-02-14T16:47:47.606876",
+      "files_analyzed": [
+        {
+          "file": "ocr_engine.py",
+          "total_lines": 411,
+          "functions": [
+            {
+              "name": "to_dict",
+              "line": 64
+            },
+            {
+              "name": "__init__",
+              "line": 89
+            },
+            {
+              "name": "_load_config",
+              "line": 123
+            },
+            {
+              "name": "process_document",
+              "line": 139
+            },
+            {
+              "name": "_progressive_ocr",
+              "line": 236
+            },
+            {
+              "name": "_apply_memory_rule",
+              "line": 294
+            },
+            {
+              "name": "_detect_entreprise",
+              "line": 318
+            },
+            {
+              "name": "_prepare_context",
+              "line": 362
+            },
+            {
+              "name": "_log_final_result",
+              "line": 376
+            },
+            {
+              "name": "_generate_document_id",
+              "line": 389
+            },
+            {
+              "name": "get_statistics",
+              "line": 395
+            }
+          ],
+          "patches": [],
+          "date_parsers": [],
+          "amount_parsers": [],
+          "overrides": [],
+          "comments_fix": [
+            {
+              "line": 174,
+              "type": "FIX",
+              "content": "# [FIX] Logging détaillé métadonnées OCR"
+            },
+            {
+              "line": 357,
+              "type": "FIX",
+              "content": "# [FIX] AUCUN PATTERN TROUVÉ = UNKNOWN (pas de default arbitraire)"
+            }
+          ]
+        },
+        {
+          "file": "levels/ocr_level1.py",
+          "total_lines": 929,
+          "functions": [
+            {
+              "name": "__init__",
+              "line": 92
+            },
+            {
+              "name": "_clean_ocr_text",
+              "line": 103
+            },
+            {
+              "name": "process",
+              "line": 152
+            },
+            {
+              "name": "_detect_document_type",
+              "line": 264
+            },
+            {
+              "name": "_extract_date",
+              "line": 284
+            },
+            {
+              "name": "_extract_amounts",
+              "line": 360
+            },
+            {
+              "name": "_extract_amount_from_line",
+              "line": 449
+            },
+            {
+              "name": "_extract_tva",
+              "line": 470
+            },
+            {
+              "name": "_extract_parties",
+              "line": 512
+            },
+            {
+              "name": "_extract_name_from_context",
+              "line": 574
+            },
+            {
+              "name": "_extract_reference",
+              "line": 587
+            },
+            {
+              "name": "_calculate_global_confidence",
+              "line": 645
+            },
+            {
+              "name": "_needs_escalation",
+              "line": 661
+            },
+            {
+              "name": "_extract_date_echeance",
+              "line": 674
+            },
+            {
+              "name": "_extract_emetteur_complet",
+              "line": 712
+            },
+            {
+              "name": "_extract_client_complet",
+              "line": 795
+            },
+            {
+              "name": "_extract_siret",
+              "line": 821
+            },
+            {
+              "name": "_extract_numero_tva",
+              "line": 854
+            },
+            {
+              "name": "_extract_adresses",
+              "line": 875
+            },
+            {
+              "name": "_extract_devise",
+              "line": 906
+            }
+          ],
+          "patches": [],
+          "date_parsers": [
+            {
+              "line": 21,
+              "content": "- Extraction dates (émission, échéance)"
+            },
+            {
+              "line": 61,
+              "content": "DATE_PATTERNS = ["
+            },
+            {
+              "line": 191,
+              "content": "# 2. Extraction dates"
+            },
+            {
+              "line": 192,
+              "content": "date_field = self._extract_date(text, text_lower)"
+            },
+            {
+              "line": 196,
+              "content": "# [MIROIR] 2b. Extraction date échéance"
+            },
+            {
+              "line": 197,
+              "content": "date_echeance = self._extract_date_echeance(text, text_lower)"
+            },
+            {
+              "line": 284,
+              "content": "def _extract_date(self, text: str, text_lower: str) -> Optional['FieldValue']:"
+            },
+            {
+              "line": 639,
+              "content": "extraction_method='regex_pattern_validated',"
+            },
+            {
+              "line": 674,
+              "content": "def _extract_date_echeance(self, text: str, text_lower: str) -> Optional['FieldV"
+            }
+          ],
+          "amount_parsers": [
+            {
+              "line": 22,
+              "content": "- Extraction montants (HT / TVA / TTC)"
+            },
+            {
+              "line": 68,
+              "content": "AMOUNT_PATTERNS = ["
+            },
+            {
+              "line": 69,
+              "content": "r'(\\d+[,\\s]\\d{3}|\\d+)[.,](\\d{2})\\s*€',  # 1234.56 €"
+            },
+            {
+              "line": 201,
+              "content": "# 3. Extraction montants"
+            },
+            {
+              "line": 202,
+              "content": "montants = self._extract_amounts(text, text_lower)"
+            },
+            {
+              "line": 360,
+              "content": "def _extract_amounts(self, text: str, text_lower: str) -> Dict[str, 'FieldValue'"
+            },
+            {
+              "line": 371,
+              "content": "amount_pattern = r'([\\d\\s]+)[,.]([\\d]{2})'"
+            },
+            {
+              "line": 449,
+              "content": "def _extract_amount_from_line(self, line: str) -> Optional[float]:"
+            }
+          ],
+          "overrides": [],
+          "comments_fix": [
+            {
+              "line": 168,
+              "type": "FIX",
+              "content": "# [FIX ULTRA-ROBUSTE] Nettoyage complet du texte OCR"
+            },
+            {
+              "line": 185,
+              "type": "FIX",
+              "content": "# [FIX] 1. Type document déjà détecté par engine (type_detector.py)"
+            },
+            {
+              "line": 591,
+              "type": "FIX",
+              "content": "# [FIX] Nettoyer le texte : retirer espaces entre lettres/chiffres"
+            },
+            {
+              "line": 763,
+              "type": "FIX",
+              "content": "# [FIX PyPDF2] Retirer espaces ENTRE lettres (\"M a i n F u n c\" → \"MainFunc\")"
+            }
+          ]
+        },
+        {
+          "file": "levels/ocr_level2.py",
+          "total_lines": 749,
+          "functions": [
+            {
+              "name": "__init__",
+              "line": 32
+            },
+            {
+              "name": "process",
+              "line": 43
+            },
+            {
+              "name": "_extract_advanced_context",
+              "line": 181
+            },
+            {
+              "name": "_group_lines_by_proximity",
+              "line": 204
+            },
+            {
+              "name": "_detect_tables",
+              "line": 222
+            },
+            {
+              "name": "_find_siret_locations",
+              "line": 250
+            },
+            {
+              "name": "_map_all_amounts",
+              "line": 265
+            },
+            {
+              "name": "_map_all_dates",
+              "line": 290
+            },
+            {
+              "name": "_improve_field",
+              "line": 311
+            },
+            {
+              "name": "_improve_date_field",
+              "line": 330
+            },
+            {
+              "name": "_improve_amount_field",
+              "line": 362
+            },
+            {
+              "name": "_improve_party_field",
+              "line": 401
+            },
+            {
+              "name": "_improve_tva_field",
+              "line": 424
+            },
+            {
+              "name": "_find_missing_critical_fields",
+              "line": 433
+            },
+            {
+              "name": "_extract_missing_field",
+              "line": 447
+            },
+            {
+              "name": "_cross_validate_fields",
+              "line": 452
+            },
+            {
+              "name": "_can_calculate_missing_values",
+              "line": 468
+            },
+            {
+              "name": "_calculate_missing_amounts",
+              "line": 480
+            },
+            {
+              "name": "_calculate_global_confidence",
+              "line": 537
+            },
+            {
+              "name": "_enrich_ticket_cb",
+              "line": 552
+            },
+            {
+              "name": "_needs_escalation",
+              "line": 689
+            },
+            {
+              "name": "_postprocess_ticket_fields",
+              "line": 703
+            }
+          ],
+          "patches": [],
+          "date_parsers": [
+            {
+              "line": 294,
+              "content": "date_patterns = ["
+            },
+            {
+              "line": 331,
+              "content": "\"\"\"Améliore l'extraction de date\"\"\""
+            },
+            {
+              "line": 345,
+              "content": "extraction_method='context_first_date',"
+            },
+            {
+              "line": 680,
+              "content": "extraction_method='derived_from_date_doc',"
+            }
+          ],
+          "amount_parsers": [
+            {
+              "line": 269,
+              "content": "amount_pattern = r'(\\d+[,\\s]\\d{3}|\\d+)[.,](\\d{2})\\s*€?'"
+            },
+            {
+              "line": 275,
+              "content": "# Parse amount"
+            },
+            {
+              "line": 363,
+              "content": "\"\"\"Améliore l'extraction de montant\"\"\""
+            },
+            {
+              "line": 669,
+              "content": "extraction_method='extraction_montant_cb_line',"
+            }
+          ],
+          "overrides": [],
+          "comments_fix": []
+        },
+        {
+          "file": "levels/ocr_level3.py",
+          "total_lines": 444,
+          "functions": [
+            {
+              "name": "__init__",
+              "line": 31
+            },
+            {
+              "name": "process",
+              "line": 42
+            },
+            {
+              "name": "_analyze_document_pattern",
+              "line": 141
+            },
+            {
+              "name": "_find_inconsistencies",
+              "line": 204
+            },
+            {
+              "name": "_correct_field",
+              "line": 272
+            },
+            {
+              "name": "_find_missing_critical_fields",
+              "line": 303
+            },
+            {
+              "name": "_extract_missing_field_advanced",
+              "line": 317
+            },
+            {
+              "name": "_create_memory_rule",
+              "line": 358
+            },
+            {
+              "name": "_generate_rule_name",
+              "line": 433
+            }
+          ],
+          "patches": [],
+          "date_parsers": [],
+          "amount_parsers": [],
+          "overrides": [],
+          "comments_fix": []
+        },
+        {
+          "file": "utils/type_detector.py",
+          "total_lines": 283,
+          "functions": [
+            {
+              "name": "detect_document_type",
+              "line": 14
+            },
+            {
+              "name": "get_document_type_confidence",
+              "line": 223
+            }
+          ],
+          "patches": [],
+          "date_parsers": [
+            {
+              "line": 267,
+              "content": "(\"FACTURE N° 12345\\nDate : 01/01/2026\\nTotal HT : 1000€\\nTVA 20% : 200€\\nTotal T"
+            },
+            {
+              "line": 268,
+              "content": "(\"BON DE LIVRAISON N° BL-001\\nDate : 01/01/2026\\nArticles livrés\", \"BON_LIVRAISO"
+            }
+          ],
+          "amount_parsers": [],
+          "overrides": [],
+          "comments_fix": [
+            {
+              "line": 36,
+              "type": "FIX",
+              "content": "# [FIX] LOGGING TEXTE BRUT (premiers 500 caractères)"
+            },
+            {
+              "line": 46,
+              "type": "FIX",
+              "content": "# [FIX] Nettoyer espaces multiples causés par certains PDF (PyPDF2)"
+            },
+            {
+              "line": 50,
+              "type": "FIX",
+              "content": "# [FIX CRITIQUE] Supprimer TOUS les espaces pour matching robuste"
+            },
+            {
+              "line": 64,
+              "type": "FIX",
+              "content": "# [FIX] Patterns renforcés avec pondération"
+            },
+            {
+              "line": 157,
+              "type": "FIX",
+              "content": "# [FIX] Patterns affinés pour éviter faux positifs avec FACTURE"
+            },
+            {
+              "line": 185,
+              "type": "FIX",
+              "content": "# [FIX] PRIORITÉ FACTURE : Si \"FACTURE\" détecté, pénaliser TICKET"
+            },
+            {
+              "line": 193,
+              "type": "FIX",
+              "content": "# [FIX] LOGGING EXHAUSTIF - Tous les scores"
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "total_files": 5,
+        "total_patches": 13,
+        "total_date_parsers": 15,
+        "total_amount_parsers": 12,
+        "total_overrides": 0,
+        "redundancies_detected": [
+          {
+            "type": "date_parsers",
+            "description": "Parsers de dates définis dans 3 fichiers différents",
+            "files": [
+              "levels/ocr_level2.py",
+              "utils/type_detector.py",
+              "levels/ocr_level1.py"
+            ],
+            "severity": "MEDIUM"
+          },
+          {
+            "type": "amount_parsers",
+            "description": "Parsers de montants définis dans 2 fichiers différents",
+            "files": [
+              "levels/ocr_level2.py",
+              "levels/ocr_level1.py"
+            ],
+            "severity": "MEDIUM"
+          }
+        ]
+      },
+      "proposals": [
+        {
+          "id": "PROP-001",
+          "category": "Centralisation",
+          "priority": "HIGH",
+          "description": "Centraliser tous les parsers (dates, montants) dans un module unique utils/parsers.py",
+          "rationale": "2 redondances détectées entre fichiers",
+          "impact": "Facilite maintenance et cohérence des extractions",
+          "breaking": false
+        },
+        {
+          "id": "PROP-002",
+          "category": "Nettoyage",
+          "priority": "LOW",
+          "description": "Nettoyer ou documenter les 13 commentaires FIX/TODO/HACK",
+          "rationale": "Commentaires accumulés indiquent patchs empilés",
+          "impact": "Code plus propre et maintenable",
+          "breaking": false
+        }
+      ]
+    },
+    "crm_gs": {
+      "timestamp": "2026-02-14T16:47:47.651426",
+      "gs_files_found": [
+        "OCR__CLOUDRUN_INTEGRATION11_V2.gs"
+      ],
+      "crm_functions": [
+        {
+          "file": "OCR__CLOUDRUN_INTEGRATION11_V2.gs",
+          "function": "_BM_normalizeFieldValues_",
+          "context": "function _BM_normalizeFieldValues_(fieldsRaw) {\n  const out = {};\n  Object.keys(fieldsRaw || {}).forEach(k => {\n    const v = fieldsRaw[k];\n    if (v && typeof v === \"object\" && \"value\" in v) out[k] ="
+        },
+        {
+          "file": "OCR__CLOUDRUN_INTEGRATION11_V2.gs",
+          "function": "_BM_mapCloudRunToPipeline_",
+          "context": "function _BM_mapCloudRunToPipeline_(base) {\n  const f = base.fields || {};\n  const docType = String(base.document_type || \"\").trim();\n  const entrepriseSource = String(base.entreprise_source || \"\").tr"
+        },
+        {
+          "file": "OCR__CLOUDRUN_INTEGRATION11_V2.gs",
+          "function": "_BM_extractDigits_",
+          "context": "function _BM_extractDigits_(s) {\n  return String(s || \"\").replace(/\\D/g, \"\");\n}\n\nfunction _BM_getFileBytes_(fileId) {\n  try {\n    const f = DriveApp.getFileById(String(fileId));\n    return f.getBlob()"
+        },
+        {
+          "file": "OCR__CLOUDRUN_INTEGRATION11_V2.gs",
+          "function": "_BM_getFileBytes_",
+          "context": "function _BM_getFileBytes_(fileId) {\n  try {\n    const f = DriveApp.getFileById(String(fileId));\n    return f.getBlob().getBytes();\n  } catch (e) {\n    return null;\n  }\n}\n\nfunction _BM_safeFileNameFro"
+        },
+        {
+          "file": "OCR__CLOUDRUN_INTEGRATION11_V2.gs",
+          "function": "_BM_safeFileNameFromDrive_",
+          "context": "function _BM_safeFileNameFromDrive_(fileId) {\n  try {\n    return DriveApp.getFileById(String(fileId)).getName();\n  } catch (e) {\n    return \"document.pdf\";\n  }\n}\n"
+        }
+      ],
+      "mapping_hub": [],
+      "pipeline_devis_facture": [],
+      "proposals": []
+    },
+    "export_hub": {
+      "timestamp": "2026-02-14T16:47:47.654398",
+      "box_export_analysis": {
+        "functions_found": 0,
+        "functions": []
+      },
+      "hub_export_analysis": {
+        "functions_found": 0,
+        "functions": []
+      },
+      "differences": [],
+      "proposals": []
+    }
+  }
+}

@@ -1,0 +1,665 @@
+{
+  "meta": {
+    "timestamp": "2026-02-14T16:52:37.335062",
+    "mode": "PROPOSAL_ONLY",
+    "version": "2.0.0"
+  },
+  "ocr_deep_audit": {
+    "patches_empiles": [],
+    "parsing_redondant": [
+      {
+        "file": "levels/ocr_level1.py",
+        "count": 7,
+        "functions": [
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 103,
+            "function": "def _clean_ocr_text(self, text: str) -> str:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 284,
+            "function": "def _extract_date(self, text: str, text_lower: str) -> Optional['FieldValue']:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 360,
+            "function": "def _extract_amounts(self, text: str, text_lower: str) -> Dict[str, 'FieldValue']:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 449,
+            "function": "def _extract_amount_from_line(self, line: str) -> Optional[float]:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 470,
+            "function": "def _extract_tva(self, text: str, text_lower: str) -> Optional['FieldValue']:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 674,
+            "function": "def _extract_date_echeance(self, text: str, text_lower: str) -> Optional['FieldValue']:",
+            "type": "parsing_function"
+          },
+          {
+            "file": "levels/ocr_level1.py",
+            "line": 854,
+            "function": "def _extract_numero_tva(self, text: str) -> Optional['FieldValue']:",
+            "type": "parsing_function"
+          }
+        ]
+      }
+    ],
+    "regles_contradictoires": [],
+    "fonctions_neutralisantes": [],
+    "surcharges_successives": [
+      {
+        "file": "ocr_engine.py",
+        "variable": "result",
+        "count": 8,
+        "lines": [
+          66,
+          86,
+          199,
+          204,
+          244,
+          268,
+          284,
+          302
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "text",
+        "count": 6,
+        "lines": [
+          114,
+          142,
+          145,
+          148,
+          165,
+          169
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "lines",
+        "count": 3,
+        "lines": [
+          117,
+          520,
+          717
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "line",
+        "count": 5,
+        "lines": [
+          121,
+          126,
+          136,
+          139,
+          579
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "value",
+        "count": 24,
+        "lines": [
+          179,
+          319,
+          352,
+          386,
+          407,
+          428,
+          441,
+          493,
+          504,
+          548,
+          555,
+          567,
+          637,
+          704,
+          748,
+          772,
+          784,
+          812,
+          833,
+          846,
+          867,
+          889,
+          898,
+          922
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "confidence",
+        "count": 26,
+        "lines": [
+          180,
+          253,
+          280,
+          320,
+          353,
+          387,
+          408,
+          429,
+          442,
+          494,
+          505,
+          549,
+          556,
+          568,
+          638,
+          705,
+          749,
+          773,
+          785,
+          813,
+          834,
+          847,
+          868,
+          890,
+          899,
+          923
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "extraction_method",
+        "count": 24,
+        "lines": [
+          181,
+          321,
+          354,
+          388,
+          409,
+          430,
+          443,
+          495,
+          506,
+          550,
+          557,
+          569,
+          639,
+          706,
+          750,
+          774,
+          786,
+          814,
+          835,
+          848,
+          869,
+          891,
+          900,
+          924
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "pattern",
+        "count": 21,
+        "lines": [
+          182,
+          322,
+          355,
+          389,
+          410,
+          431,
+          444,
+          496,
+          507,
+          640,
+          707,
+          751,
+          775,
+          787,
+          815,
+          836,
+          849,
+          870,
+          892,
+          901,
+          925
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "siret",
+        "count": 3,
+        "lines": [
+          225,
+          830,
+          844
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "result",
+        "count": 4,
+        "lines": [
+          249,
+          716,
+          799,
+          879
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "matches",
+        "count": 6,
+        "lines": [
+          272,
+          327,
+          452,
+          477,
+          683,
+          884
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "match",
+        "count": 12,
+        "lines": [
+          296,
+          330,
+          381,
+          402,
+          423,
+          455,
+          621,
+          685,
+          808,
+          827,
+          841,
+          864
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "date_str",
+        "count": 9,
+        "lines": [
+          304,
+          306,
+          316,
+          337,
+          339,
+          349,
+          689,
+          691,
+          701
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "mois_map",
+        "count": 3,
+        "lines": [
+          309,
+          342,
+          694
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "mois",
+        "count": 3,
+        "lines": [
+          315,
+          348,
+          700
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "montant_str",
+        "count": 3,
+        "lines": [
+          383,
+          404,
+          425
+        ]
+      },
+      {
+        "file": "levels/ocr_level1.py",
+        "variable": "line_clean",
+        "count": 4,
+        "lines": [
+          759,
+          761,
+          762,
+          764
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "fields",
+        "count": 3,
+        "lines": [
+          58,
+          142,
+          171
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "value",
+        "count": 19,
+        "lines": [
+          119,
+          128,
+          343,
+          354,
+          377,
+          385,
+          393,
+          416,
+          494,
+          502,
+          510,
+          523,
+          530,
+          588,
+          606,
+          616,
+          642,
+          667,
+          678
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "confidence",
+        "count": 20,
+        "lines": [
+          120,
+          129,
+          169,
+          344,
+          355,
+          378,
+          386,
+          394,
+          417,
+          495,
+          503,
+          511,
+          524,
+          531,
+          589,
+          607,
+          617,
+          643,
+          668,
+          679
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "extraction_method",
+        "count": 19,
+        "lines": [
+          121,
+          130,
+          345,
+          356,
+          379,
+          387,
+          395,
+          418,
+          496,
+          504,
+          512,
+          525,
+          532,
+          590,
+          608,
+          618,
+          644,
+          669,
+          680
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "position",
+        "count": 13,
+        "lines": [
+          122,
+          131,
+          346,
+          357,
+          380,
+          388,
+          396,
+          591,
+          609,
+          619,
+          645,
+          670,
+          681
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "pattern",
+        "count": 9,
+        "lines": [
+          123,
+          132,
+          419,
+          592,
+          610,
+          620,
+          646,
+          671,
+          682
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "in_table",
+        "count": 3,
+        "lines": [
+          225,
+          234,
+          246
+        ]
+      },
+      {
+        "file": "levels/ocr_level2.py",
+        "variable": "current_table",
+        "count": 3,
+        "lines": [
+          226,
+          235,
+          245
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "pattern",
+        "count": 3,
+        "lines": [
+          59,
+          105,
+          152
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "fields",
+        "count": 3,
+        "lines": [
+          63,
+          107,
+          126
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "value",
+        "count": 4,
+        "lines": [
+          91,
+          292,
+          335,
+          349
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "confidence",
+        "count": 4,
+        "lines": [
+          124,
+          293,
+          336,
+          350
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "extraction_method",
+        "count": 3,
+        "lines": [
+          294,
+          337,
+          351
+        ]
+      },
+      {
+        "file": "levels/ocr_level3.py",
+        "variable": "identifier",
+        "count": 3,
+        "lines": [
+          437,
+          439,
+          441
+        ]
+      },
+      {
+        "file": "connectors/google_sheets.py",
+        "variable": "spreadsheetId",
+        "count": 3,
+        "lines": [
+          115,
+          282,
+          312
+        ]
+      },
+      {
+        "file": "connectors/google_sheets.py",
+        "variable": "row",
+        "count": 3,
+        "lines": [
+          161,
+          216,
+          247
+        ]
+      },
+      {
+        "file": "connectors/google_sheets.py",
+        "variable": "success",
+        "count": 3,
+        "lines": [
+          170,
+          227,
+          257
+        ]
+      },
+      {
+        "file": "connectors/google_sheets.py",
+        "variable": "client_fournisseur",
+        "count": 3,
+        "lines": [
+          210,
+          212,
+          214
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "matches",
+        "count": 3,
+        "lines": [
+          69,
+          80,
+          95
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "value",
+        "count": 3,
+        "lines": [
+          125,
+          137,
+          146
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "confidence",
+        "count": 3,
+        "lines": [
+          126,
+          138,
+          147
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "extraction_method",
+        "count": 3,
+        "lines": [
+          127,
+          139,
+          148
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "pattern",
+        "count": 4,
+        "lines": [
+          128,
+          133,
+          140,
+          149
+        ]
+      },
+      {
+        "file": "memory/ai_memory.py",
+        "variable": "rules_data",
+        "count": 3,
+        "lines": [
+          201,
+          213,
+          426
+        ]
+      }
+    ]
+  },
+  "propositions_nettoyage": [
+    {
+      "id": "PROP-OCR-004",
+      "titre": "Simplifier 41 variables surchargées 3+ fois",
+      "priorite": "LOW",
+      "rationale": "Logique confuse avec multiples réassignations",
+      "impact": "Code plus clair et linéaire",
+      "breaking": false
+    }
+  ]
+}
