@@ -31,6 +31,26 @@ function IAPF_uiBuildMenu_() {
     .addItem("Export BOX (ZIP + XLSX Sheet)", "MCP_EXPORT_exportBoxZipAndSheet")
     .addSeparator()
     .addItem("Vérifier cohérence dépendances", "MCP_DEPENDENCIES_checkConsistency");
+  
+  // --- Sous-menu Actions MCP Phase 2 (18 endpoints)
+  const actionsMcpMenu = ui.createMenu("Actions MCP")
+    .addItem("📁 Drive — List Tree", "MCP_ACTION_driveListTree")
+    .addItem("📄 Drive — File Metadata", "MCP_ACTION_driveFileMetadata")
+    .addItem("🔍 Drive — Search", "MCP_ACTION_driveSearch")
+    .addSeparator()
+    .addItem("📜 Apps Script — Deployments", "MCP_ACTION_appsScriptDeployments")
+    .addItem("🏗️ Apps Script — Structure", "MCP_ACTION_appsScriptStructure")
+    .addSeparator()
+    .addItem("☁️ Cloud Run — Service Status", "MCP_ACTION_cloudRunServiceStatus")
+    .addSeparator()
+    .addItem("🔐 Secret Manager — List", "MCP_ACTION_secretsList")
+    .addItem("🔑 Secret Manager — Get Reference", "MCP_ACTION_secretGetReference")
+    .addItem("➕ Secret Manager — Create (DRY_RUN)", "MCP_ACTION_secretCreateDryRun")
+    .addItem("✅ Secret Manager — Create (APPLY)", "MCP_ACTION_secretCreateApply")
+    .addSeparator()
+    .addItem("🌐 Web — Search", "MCP_ACTION_webSearch")
+    .addSeparator()
+    .addItem("💻 Terminal — Run (READ_ONLY)", "MCP_ACTION_terminalRunReadOnly");
 
   // --- Menu principal IAPF Memory
   ui.createMenu(IAPF.MENU_NAME)
@@ -50,6 +70,7 @@ function IAPF_uiBuildMenu_() {
     .addItem("BOX2026 — Ouvrir dossier ARCHIVES", "MCP_UI_openArchivesFolder")
     .addSeparator()
     .addSubMenu(mcpMenu)
+    .addSubMenu(actionsMcpMenu)
     .addSeparator()
     .addItem("Ouvrir LOGS", "IAPF_uiOpenLogs")
     .addToUi();
