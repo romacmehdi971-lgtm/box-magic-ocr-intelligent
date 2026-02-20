@@ -1,0 +1,246 @@
+================================================================================
+📋 CHECKLIST VALIDATION ÉLIA — P0 + P1
+================================================================================
+
+Date: 2026-02-20
+Version: v3.1.5-infra-config-fix + Cockpit HTTP Client
+Commit: 33c2cf4
+
+================================================================================
+⚙️ PHASE 1: Configuration SETTINGS (prerequisite)
+================================================================================
+
+Dans Google Sheet IAPF Memory HUB, onglet SETTINGS:
+
+[ ] Ajouter la ligne:
+    key: mcp_proxy_url
+    value: https://mcp-memory-proxy-522732657254.us-central1.run.app
+    notes: Backend Cloud Run URL
+
+[ ] Ajouter la ligne:
+    key: mcp_api_key
+    value: kTxWKxMrrrEXtM132Vd1Qqc4Zf6QsmQKLOo_W1PuDWE
+    notes: API key (SENSITIVE - do not log)
+
+================================================================================
+📦 PHASE 2: Déploiement Code Apps Script
+================================================================================
+
+Dans le projet Apps Script (lié à la Google Sheet):
+
+[ ] Créer un nouveau fichier: "G09_MCP_HTTP_CLIENT"
+[ ] Copier le contenu de: HUB_COMPLET/G09_MCP_HTTP_CLIENT.gs
+[ ] Remplacer le fichier "G01_UI_MENU" avec: HUB_COMPLET/G01_UI_MENU.gs
+[ ] Sauvegarder le projet (Ctrl+S / ⌘+S)
+[ ] Fermer et rouvrir la Google Sheet (ou Ctrl+R / ⌘+R)
+
+================================================================================
+🧪 PHASE 3: Tests Backend (direct curl, optionnel)
+================================================================================
+
+Si tu veux vérifier que le backend fonctionne avant de tester le cockpit:
+
+[ ] Exécuter depuis un terminal:
+    curl -sS -H "X-API-Key: kTxWKxMrrrEXtM132Vd1Qqc4Zf6QsmQKLOo_W1PuDWE" \
+      "https://mcp-memory-proxy-522732657254.us-central1.run.app/infra/whoami"
+
+    Résultat attendu: JSON avec "config": {"read_only_mode": "true", ...}
+
+[ ] Tester pagination:
+    curl -sS -H "X-API-Key: kTxWKxMrrrEXtM132Vd1Qqc4Zf6QsmQKLOo_W1PuDWE" \
+      "https://mcp-memory-proxy-522732657254.us-central1.run.app/sheets/SETTINGS?limit=1"
+
+    Résultat attendu: JSON avec "row_count": 1
+
+================================================================================
+✅ PHASE 4: Validation Cockpit (P0 + P1)
+================================================================================
+
+Test 1: 🔌 Test Connection
+---------------------------
+Menu: IAPF Memory > MCP Cockpit > 🔌 Test Connection
+
+[ ] Clic sur "Test Connection"
+[ ] Résultat attendu:
+    ✅ Popup "MCP Proxy — Connection OK"
+    ✅ Version: v3.1.5-infra-config-fix
+    ✅ Status: 200
+
+❌ Si échec, vérifier:
+   • SETTINGS: mcp_proxy_url correct
+   • SETTINGS: mcp_api_key présent
+
+Test 2: 🔍 GET /infra/whoami
+-----------------------------
+Menu: IAPF Memory > MCP Cockpit > 🔍 GET /infra/whoami
+
+[ ] Clic sur "GET /infra/whoami"
+[ ] Résultat attendu:
+    ✅ Popup "MCP Proxy — Infrastructure Info"
+    ✅ Project: box-magique-gp-prod
+    ✅ Region: us-central1
+    ✅ Service: mcp-memory-proxy
+    ✅ Revision: mcp-memory-proxy-00025-zmb
+    ✅ Version: v3.1.5-infra-config-fix
+    ✅ Config:
+       read_only_mode: true
+       enable_actions: false
+       dry_run_mode: true
+       log_level: INFO
+
+❌ Si échec:
+   • Backend probablement OK (testé en Phase 3)
+   • Vérifier SETTINGS (API key correcte)
+
+Test 3: 📊 Test Pagination (P0 validation)
+-------------------------------------------
+Menu: IAPF Memory > MCP Cockpit > 📊 Test Pagination
+
+[ ] Clic sur "Test Pagination"
+[ ] Confirmer "YES" dans le popup de confirmation
+[ ] Résultat attendu:
+    ✅ Popup "MCP Proxy — Pagination Tests"
+    ✅ SETTINGS?limit=1 → 1 rows
+    ✅ MEMORY_LOG?limit=5 → 5 rows
+    ✅ DRIVE_INVENTORY?limit=10 → 10 rows
+
+❌ Si un test échoue (e.g., HTTP 404):
+   • Onglet manquant dans la Google Sheet
+   • Vérifier que MEMORY_LOG, SETTINGS, DRIVE_INVENTORY existent
+
+Test 4: 🛠️ HTTP GET Tool (P1 validation)
+-----------------------------------------
+Menu: IAPF Memory > MCP Cockpit > 🛠️ HTTP GET Tool
+
+[ ] Clic sur "HTTP GET Tool"
+[ ] Entrer path: /health
+[ ] Clic OK
+[ ] Entrer query params: (laisser vide)
+[ ] Clic OK
+[ ] Résultat attendu:
+    ✅ Popup "MCP Proxy — HTTP GET Result"
+    ✅ Status: 200
+    ✅ Response: {"status":"healthy","version":"v3.1.5-infra-config-fix"}
+
+[ ] Tester avec query params:
+    Path: /sheets/SETTINGS
+    Query params: limit=1
+[ ] Résultat attendu:
+    ✅ Status: 200
+    ✅ Response contient: "row_count": 1
+
+❌ Si erreur "Exception":
+   • Vérifier syntaxe query params (format: key=value&key2=value2)
+   • Pas d'espaces, pas de "?" au début
+
+================================================================================
+🔐 Test 5: Validation READ-ONLY MODE (P0)
+================================================================================
+
+Test tentative POST (devrait être bloqué):
+
+[ ] Menu: IAPF Memory > MCP Cockpit > 🛠️ HTTP GET Tool
+[ ] Entrer path: /propose
+[ ] Note: L'outil est GET only, donc le POST est impossible à envoyer
+    depuis le cockpit (✅ comportement attendu)
+
+Test depuis terminal (optionnel):
+[ ] Exécuter:
+    curl -X POST -H "X-API-Key: kTxWKxMrrrEXtM132Vd1Qqc4Zf6QsmQKLOo_W1PuDWE" \
+      "https://mcp-memory-proxy-522732657254.us-central1.run.app/propose" \
+      -H "Content-Type: application/json" \
+      -d '{"type":"test"}'
+
+[ ] Résultat attendu:
+    ✅ HTTP 403
+    ✅ Response: {"detail":"Write operations are disabled (READ_ONLY_MODE=true)","audit_safe":true}
+
+================================================================================
+📊 RÉCAPITULATIF VALIDATION
+================================================================================
+
+P0 — Backend (audit-safe):
+[ ] ✅ /infra/whoami retourne config.read_only_mode=true
+[ ] ✅ Query params ?limit= fonctionnent (1, 5, 10 testés)
+[ ] ✅ POST bloqués (READ_ONLY_MODE=true)
+[ ] ✅ Erreurs surfacent status_code + body + correlation_id
+
+P1 — Cockpit HTTP Client:
+[ ] ✅ Menu items présents (4 nouvelles actions)
+[ ] ✅ Test Connection fonctionne
+[ ] ✅ GET /infra/whoami affiche config complet
+[ ] ✅ Test Pagination passe (3 sheets testées)
+[ ] ✅ HTTP GET Tool utilisable (prompt path + query params)
+
+================================================================================
+🚨 TROUBLESHOOTING
+================================================================================
+
+Problème 1: "SETTINGS sheet not found"
+---------------------------------------
+Solution:
+  • Vérifier que l'onglet SETTINGS existe dans la Google Sheet
+  • Recharger la page (F5 / Ctrl+R)
+
+Problème 2: "mcp_proxy_url not found"
+--------------------------------------
+Solution:
+  • Vérifier que la clé "mcp_proxy_url" est bien écrite (pas de typo)
+  • Vérifier colonne A (key) et colonne B (value) dans SETTINGS
+
+Problème 3: "HTTP 403" dans Test Connection
+--------------------------------------------
+Solution:
+  • Vérifier que mcp_api_key est correcte dans SETTINGS
+  • Tester depuis curl (Phase 3) pour confirmer que le backend fonctionne
+
+Problème 4: "HTTP 404" dans Test Pagination
+--------------------------------------------
+Solution:
+  • Vérifier que l'onglet testé existe (MEMORY_LOG, SETTINGS, DRIVE_INVENTORY)
+  • Si onglet manquant, créer via: IAPF Memory > Initialiser / Valider HUB
+
+Problème 5: Menus MCP Cockpit absents
+--------------------------------------
+Solution:
+  • Vérifier que G01_UI_MENU.gs contient les 4 nouvelles actions
+  • Fermer et rouvrir la Google Sheet (force refresh)
+  • Vérifier que G09_MCP_HTTP_CLIENT.gs est bien présent dans le projet
+
+================================================================================
+✅ VALIDATION FINALE
+================================================================================
+
+[ ] Tous les tests de Phase 4 passent (Tests 1-4) ✅
+[ ] READ-ONLY MODE validé (Test 5) ✅
+[ ] Aucune erreur dans logs Apps Script (View > Logs) ✅
+
+[ ] Si tout est ✅:
+    → Marquer comme "PRODUCTION READY" ✅
+    → Informer GenSpark que P0 + P1 sont validés ✅
+
+[ ] Si des tests échouent:
+    → Noter les erreurs exactes (status_code, message)
+    → Vérifier Troubleshooting ci-dessus
+    → Contacter GenSpark avec les détails d'erreur
+
+================================================================================
+📧 CONTACT SUPPORT
+================================================================================
+
+En cas de problème non résolu:
+  • Rapport complet: RAPPORT_COCKPIT_P0_P1_FINAL.md
+  • Architecture: ARCHITECTURE_COCKPIT_P0_P1.txt
+  • Quick start: README_COCKPIT_QUICK_START.txt
+  • Tests backend: ./test_cockpit_p0_p1.sh
+
+Logs backend Cloud Run:
+  https://console.cloud.google.com/run?project=box-magique-gp-prod
+
+GitHub commits:
+  https://github.com/romacmehdi971-lgtm/box-magic-ocr-intelligent
+  Commits: 09a3988 → 60d53b8 → 9e1401f → 4aeb137 → ac90651 → 33c2cf4
+
+================================================================================
+🎉 FIN DE LA CHECKLIST — Bonne validation ! 🚀
+================================================================================
