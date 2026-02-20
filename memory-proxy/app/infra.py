@@ -23,6 +23,14 @@ router = APIRouter(prefix="/infra", tags=["Infrastructure"])
 
 # ==================== MODELS ====================
 
+class AuditSafeConfig(BaseModel):
+    """Audit-safe runtime configuration flags"""
+    read_only_mode: str
+    enable_actions: str
+    dry_run_mode: str
+    log_level: str
+
+
 class WhoAmIResponse(BaseModel):
     """Runtime identity and configuration"""
     project_id: str
@@ -33,6 +41,7 @@ class WhoAmIResponse(BaseModel):
     image_digest: str
     auth_mode: str = Field(..., description="IAM|API_KEY|DUAL")
     version: str
+    config: AuditSafeConfig
 
 
 class LogEntry(BaseModel):
@@ -230,6 +239,14 @@ async def whoami():
         auth_mode = determine_auth_mode()
         version = os.environ.get("VERSION", os.environ.get("BUILD_VERSION", os.environ.get("API_VERSION", "v3.1.0-p0")))
         
+        # Build audit-safe config
+        config = AuditSafeConfig(
+            read_only_mode=os.environ.get("READ_ONLY_MODE", "false"),
+            enable_actions=os.environ.get("ENABLE_ACTIONS", "false"),
+            dry_run_mode=os.environ.get("DRY_RUN_MODE", "true"),
+            log_level=os.environ.get("LOG_LEVEL", "INFO")
+        )
+        
         response = WhoAmIResponse(
             project_id=project_id,
             region=region,
@@ -238,7 +255,8 @@ async def whoami():
             cloud_run_revision=metadata["revision"],
             image_digest=image_digest,
             auth_mode=auth_mode,
-            version=version
+            version=version,
+            config=config
         )
         
         logger.info(f"[{correlation_id}] whoami successful: {service_account_email}")
