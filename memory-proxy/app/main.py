@@ -52,6 +52,7 @@ from .proposals import get_proposal_manager, ProposalManager
 from .validation import get_validation_engine, ValidationEngine
 from . import infra
 from . import hub
+from . import phase2_endpoints
 
 # Configure logging
 logging.basicConfig(
@@ -79,7 +80,8 @@ app = FastAPI(
             "description": "Google Sheets operations (DUAL AUTH: IAM token OR X-API-Key)"
         },
         {"name": "Proposals", "description": "Memory entry proposals with validation"},
-        {"name": "Operations", "description": "Operational endpoints (audit, close-day)"}
+        {"name": "Operations", "description": "Operational endpoints (audit, close-day)"},
+        {"name": "Phase 2 MCP Extensions", "description": "Drive, Apps Script, Cloud Run, Secrets, Web, Terminal (READ_ONLY + WRITE gouverné)"}
     ]
 )
 
@@ -127,6 +129,9 @@ async def read_only_middleware(request: Request, call_next):
 # Include P0 routers (Infrastructure + Hub Memory Writer)
 app.include_router(infra.router)
 app.include_router(hub.router)
+
+# Include Phase 2 routers (Drive, Apps Script, Cloud Run, Secrets, Web, Terminal)
+app.include_router(phase2_endpoints.router, tags=["Phase 2 MCP Extensions"])
 
 # API Key security scheme
 api_key_header = APIKeyHeader(name=API_KEY_HEADER, auto_error=False)
