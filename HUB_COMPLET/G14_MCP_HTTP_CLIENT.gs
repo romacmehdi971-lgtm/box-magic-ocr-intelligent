@@ -183,6 +183,7 @@ var MCP_HTTP = (function() {
 
   return {
     getInfraWhoami: getInfraWhoami,
+    getInfraHami: getInfraWhoami, // Alias for backward compatibility
     getHealth: getHealth,
     getDocsJson: getDocsJson,
     getSheet: getSheet,
