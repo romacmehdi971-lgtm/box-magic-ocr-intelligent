@@ -1,0 +1,541 @@
+{
+  "name": "mcp-memory-proxy",
+  "version": "3.0.6-phase2",
+  "description": "MCP Memory Proxy - Phase 2 Extensions (Drive, Apps Script, Cloud Run, Secrets, Web, Terminal)",
+  "server_url": "https://mcp-memory-proxy-522732657254.us-central1.run.app",
+  "protocol": "mcp/v1",
+  "tools": [
+    {
+      "name": "drive_list_tree",
+      "description": "List recursive folder tree structure from Google Drive with controlled depth",
+      "endpoint": "/drive/tree",
+      "method": "GET",
+      "parameters": {
+        "folder_id": {
+          "type": "string",
+          "required": true,
+          "description": "Google Drive folder ID to list"
+        },
+        "max_depth": {
+          "type": "integer",
+          "required": false,
+          "default": 2,
+          "description": "Maximum recursion depth (1-5)"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "description": "Maximum items per folder"
+        },
+        "include_trashed": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Include trashed items"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "folder_name": "string",
+        "total_items": "integer",
+        "tree": "array"
+      }
+    },
+    {
+      "name": "drive_file_metadata",
+      "description": "Get complete metadata for a Google Drive file or folder",
+      "endpoint": "/drive/file/{file_id}/metadata",
+      "method": "GET",
+      "parameters": {
+        "file_id": {
+          "type": "string",
+          "required": true,
+          "description": "Google Drive file/folder ID"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "file": {
+          "id": "string",
+          "name": "string",
+          "mimeType": "string",
+          "size": "integer",
+          "createdTime": "string",
+          "modifiedTime": "string",
+          "owners": "array",
+          "capabilities": "object"
+        }
+      }
+    },
+    {
+      "name": "drive_search",
+      "description": "Search files in Google Drive by name or regex pattern",
+      "endpoint": "/drive/search",
+      "method": "GET",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "Search query (max 100 chars)"
+        },
+        "folder_id": {
+          "type": "string",
+          "required": false,
+          "description": "Optional folder ID to scope search"
+        },
+        "mime_type": {
+          "type": "string",
+          "required": false,
+          "description": "Filter by MIME type"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 50,
+          "description": "Maximum results (max 200)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "query": "string",
+        "total_results": "integer",
+        "files": "array"
+      }
+    },
+    {
+      "name": "apps_script_deployments",
+      "description": "List Apps Script project deployments",
+      "endpoint": "/apps-script/project/{script_id}/deployments",
+      "method": "GET",
+      "parameters": {
+        "script_id": {
+          "type": "string",
+          "required": true,
+          "description": "Apps Script project ID"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 20,
+          "description": "Maximum deployments (max 50)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "script_id": "string",
+        "deployments": "array",
+        "total_deployments": "integer"
+      }
+    },
+    {
+      "name": "apps_script_structure",
+      "description": "Get Apps Script project structure (files, functions)",
+      "endpoint": "/apps-script/project/{script_id}/structure",
+      "method": "GET",
+      "parameters": {
+        "script_id": {
+          "type": "string",
+          "required": true,
+          "description": "Apps Script project ID"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "script_id": "string",
+        "project_name": "string",
+        "files": "array",
+        "total_files": "integer",
+        "total_functions": "integer"
+      }
+    },
+    {
+      "name": "cloud_run_service_status",
+      "description": "Get Cloud Run service status (revision, image digest, last deploy)",
+      "endpoint": "/cloud-run/service/{service_name}/status",
+      "method": "GET",
+      "parameters": {
+        "service_name": {
+          "type": "string",
+          "required": true,
+          "description": "Cloud Run service name"
+        },
+        "region": {
+          "type": "string",
+          "required": false,
+          "description": "GCP region (default: us-central1)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "service_name": "string",
+        "region": "string",
+        "status": "object"
+      }
+    },
+    {
+      "name": "cloud_logging_query",
+      "description": "Query Cloud Logging with time range and filters",
+      "endpoint": "/cloud-logging/query",
+      "method": "POST",
+      "parameters": {
+        "resource_type": {
+          "type": "string",
+          "required": true,
+          "description": "Resource type (e.g., cloud_run_revision)"
+        },
+        "resource_labels": {
+          "type": "object",
+          "required": true,
+          "description": "Resource labels filter"
+        },
+        "filter": {
+          "type": "string",
+          "required": false,
+          "default": "severity>=INFO",
+          "description": "Log filter expression"
+        },
+        "start_time": {
+          "type": "string",
+          "required": false,
+          "description": "Start time (ISO 8601)"
+        },
+        "end_time": {
+          "type": "string",
+          "required": false,
+          "description": "End time (ISO 8601)"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "description": "Maximum logs (max 1000)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "total_entries": "integer",
+        "entries": "array"
+      }
+    },
+    {
+      "name": "secrets_list",
+      "description": "List Secret Manager secrets metadata (READ_ONLY)",
+      "endpoint": "/secrets/list",
+      "method": "GET",
+      "parameters": {
+        "project_id": {
+          "type": "string",
+          "required": false,
+          "description": "GCP project ID (default from config)"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 50,
+          "description": "Maximum secrets (max 100)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "project_id": "string",
+        "total_secrets": "integer",
+        "secrets": "array"
+      }
+    },
+    {
+      "name": "secrets_get_reference",
+      "description": "Get secret reference/metadata (READ_ONLY, never returns value)",
+      "endpoint": "/secrets/{secret_id}/reference",
+      "method": "GET",
+      "parameters": {
+        "secret_id": {
+          "type": "string",
+          "required": true,
+          "description": "Secret Manager secret ID"
+        },
+        "version": {
+          "type": "string",
+          "required": false,
+          "default": "latest",
+          "description": "Secret version"
+        }
+      },
+      "mode": "READ_ONLY",
+      "returns": {
+        "run_id": "string",
+        "secret_id": "string",
+        "reference": "string",
+        "version": "string",
+        "created_time": "string"
+      }
+    },
+    {
+      "name": "secrets_create_dryrun",
+      "description": "DRY_RUN: Simulate secret creation (does NOT create, returns plan)",
+      "endpoint": "/secrets/create",
+      "method": "POST",
+      "parameters": {
+        "secret_id": {
+          "type": "string",
+          "required": true,
+          "description": "Secret ID to create"
+        },
+        "value": {
+          "type": "string",
+          "required": true,
+          "description": "Secret value (will be redacted in logs)"
+        },
+        "labels": {
+          "type": "object",
+          "required": false,
+          "description": "Labels for secret"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "DRY_RUN mode (true = simulate only)"
+        }
+      },
+      "mode": "WRITE_GOVERNED",
+      "governance": "DRY_RUN",
+      "returns": {
+        "run_id": "string",
+        "dry_run": "boolean",
+        "action": "string",
+        "secret_id": "string",
+        "plan": "object"
+      }
+    },
+    {
+      "name": "secrets_create_apply",
+      "description": "APPLY: Create secret (requires dry_run=false + GO confirmation)",
+      "endpoint": "/secrets/create",
+      "method": "POST",
+      "parameters": {
+        "secret_id": {
+          "type": "string",
+          "required": true,
+          "description": "Secret ID to create"
+        },
+        "value": {
+          "type": "string",
+          "required": true,
+          "description": "Secret value (will be redacted in logs)"
+        },
+        "labels": {
+          "type": "object",
+          "required": false,
+          "description": "Labels for secret"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": true,
+          "default": false,
+          "description": "APPLY mode (false = execute)"
+        }
+      },
+      "mode": "WRITE_GOVERNED",
+      "governance": "GO_REQUIRED",
+      "returns": {
+        "run_id": "string",
+        "dry_run": "boolean",
+        "action": "string",
+        "secret_id": "string",
+        "reference": "string"
+      }
+    },
+    {
+      "name": "secrets_rotate",
+      "description": "WRITE_GOVERNED: Rotate secret (DRY_RUN then APPLY)",
+      "endpoint": "/secrets/{secret_id}/rotate",
+      "method": "POST",
+      "parameters": {
+        "secret_id": {
+          "type": "string",
+          "required": true,
+          "description": "Secret ID to rotate"
+        },
+        "new_value": {
+          "type": "string",
+          "required": true,
+          "description": "New secret value"
+        },
+        "disable_previous_version": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Disable previous version"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "description": "DRY_RUN mode"
+        }
+      },
+      "mode": "WRITE_GOVERNED",
+      "governance": "DRY_RUN_THEN_GO",
+      "returns": {
+        "run_id": "string",
+        "dry_run": "boolean",
+        "action": "string",
+        "secret_id": "string",
+        "new_version": "string"
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "Search web (controlled allow-listed domains, daily quota)",
+      "endpoint": "/web/search",
+      "method": "POST",
+      "parameters": {
+        "query": {
+          "type": "string",
+          "required": true,
+          "description": "Search query"
+        },
+        "max_results": {
+          "type": "integer",
+          "required": false,
+          "default": 10,
+          "description": "Maximum results"
+        },
+        "allowed_domains": {
+          "type": "array",
+          "required": false,
+          "description": "Additional allowed domains"
+        }
+      },
+      "mode": "READ_ONLY",
+      "quotas": {
+        "daily": 100
+      },
+      "returns": {
+        "run_id": "string",
+        "query": "string",
+        "total_results": "integer",
+        "results": "array",
+        "quota_remaining": "integer"
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch content from URL (controlled allow-listed domains, size limit)",
+      "endpoint": "/web/fetch",
+      "method": "POST",
+      "parameters": {
+        "url": {
+          "type": "string",
+          "required": true,
+          "description": "URL to fetch"
+        },
+        "method": {
+          "type": "string",
+          "required": false,
+          "default": "GET",
+          "description": "HTTP method"
+        },
+        "headers": {
+          "type": "object",
+          "required": false,
+          "description": "Custom headers"
+        },
+        "max_size": {
+          "type": "integer",
+          "required": false,
+          "default": 1048576,
+          "description": "Maximum content size (bytes)"
+        }
+      },
+      "mode": "READ_ONLY",
+      "quotas": {
+        "daily": 100
+      },
+      "returns": {
+        "run_id": "string",
+        "url": "string",
+        "status_code": "integer",
+        "content_type": "string",
+        "content": "string"
+      }
+    },
+    {
+      "name": "terminal_run_readonly",
+      "description": "Run terminal command (READ_ONLY allowlist: gcloud, kubectl, etc.)",
+      "endpoint": "/terminal/run",
+      "method": "POST",
+      "parameters": {
+        "command": {
+          "type": "string",
+          "required": true,
+          "description": "Command to execute"
+        },
+        "mode": {
+          "type": "string",
+          "required": false,
+          "default": "READ_ONLY",
+          "description": "Execution mode (READ_ONLY or WRITE)"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "required": false,
+          "default": 30,
+          "description": "Command timeout"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "DRY_RUN mode for WRITE commands"
+        }
+      },
+      "mode": "WRITE_GOVERNED",
+      "governance": "ALLOWLIST + DRY_RUN",
+      "quotas": {
+        "daily_read": 50,
+        "daily_write": 10
+      },
+      "returns": {
+        "run_id": "string",
+        "command": "string",
+        "mode": "string",
+        "dry_run": "boolean",
+        "stdout": "string",
+        "stderr": "string",
+        "exit_code": "integer"
+      }
+    }
+  ],
+  "authentication": {
+    "methods": ["api_key", "iam_token"],
+    "api_key_header": "X-API-Key",
+    "iam_bearer_header": "Authorization: Bearer <token>"
+  },
+  "governance": {
+    "read_only_endpoints": 11,
+    "write_governed_endpoints": 4,
+    "mandatory_logging": true,
+    "run_id_format": "{domain}_{action}_{timestamp}_{random}",
+    "memory_log_sheet": "MEMORY_LOG",
+    "redaction_policy": "ALL_SECRETS_REDACTED"
+  },
+  "quotas": {
+    "web_daily": 100,
+    "terminal_read_daily": 50,
+    "terminal_write_daily": 10
+  },
+  "environment": "STAGING",
+  "health_check": "/health",
+  "openapi": "/openapi.json",
+  "docs": "/docs"
+}

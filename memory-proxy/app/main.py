@@ -241,8 +241,49 @@ async def root():
         "status": "running",
         "documentation": "/docs",
         "openapi_schema": "/openapi.json",
-        "health_check": "/health"
+        "health_check": "/health",
+        "mcp_manifest": "/mcp/manifest"
     }
+
+
+@app.get("/mcp/manifest", tags=["System"])
+async def mcp_manifest():
+    """
+    MCP Server Manifest - Tool definitions for MCP clients (PUBLIC)
+    
+    Returns the complete MCP server manifest with all available tools,
+    including Phase 2 extensions (Drive, Apps Script, Cloud Run, Secrets, Web, Terminal).
+    
+    This endpoint allows MCP clients (like Élia) to discover all available tools
+    with their parameters, modes (READ_ONLY/WRITE_GOVERNED), and governance rules.
+    """
+    import json
+    import os
+    
+    # Load manifest from file
+    manifest_path = os.path.join(os.path.dirname(__file__), "..", "mcp_server_manifest.json")
+    try:
+        with open(manifest_path, "r") as f:
+            manifest = json.load(f)
+        
+        # Update dynamic values
+        manifest["version"] = API_VERSION
+        manifest["environment"] = os.environ.get("MCP_ENVIRONMENT", "STAGING")
+        manifest["server_url"] = os.environ.get("SERVICE_URL", "https://mcp-memory-proxy-522732657254.us-central1.run.app")
+        
+        return manifest
+    except FileNotFoundError:
+        logger.error(f"MCP manifest file not found: {manifest_path}")
+        raise HTTPException(
+            status_code=500,
+            detail="MCP manifest not found"
+        )
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in MCP manifest: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid MCP manifest format"
+        )
 
 
 @app.get("/health", response_model=HealthCheckResponse, tags=["System"])

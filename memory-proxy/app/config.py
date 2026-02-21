@@ -91,18 +91,29 @@ ENABLE_ACTIONS = os.environ.get("ENABLE_ACTIONS", "false").lower() == "true"
 DRY_RUN_MODE = os.environ.get("DRY_RUN_MODE", "true").lower() == "true"
 
 # GCP Project Configuration
+# Supports both MCP_* and legacy naming (fallback to legacy if MCP_* not set)
 GCP_PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "box-magique-gp-prod")
 GCP_REGION = os.environ.get("GCP_REGION", "us-central1")
+CLOUD_RUN_SERVICE = os.environ.get("CLOUD_RUN_SERVICE", "mcp-memory-proxy")
 
 # ============================================================================
 # PHASE 2 CONFIGURATION - Extension contrôlée des accès MCP
+# Standardisation variables: MCP_* (preferred) with fallback to legacy names
 # ============================================================================
 
 # MCP Environment
-MCP_ENVIRONMENT = os.environ.get("MCP_ENVIRONMENT", "STAGING")  # STAGING or PRODUCTION
-MCP_GCP_PROJECT_ID = os.environ.get("MCP_GCP_PROJECT_ID", GCP_PROJECT_ID)
-MCP_GCP_REGION = os.environ.get("MCP_GCP_REGION", GCP_REGION)
-MCP_CLOUD_RUN_SERVICE = os.environ.get("MCP_CLOUD_RUN_SERVICE", "mcp-memory-proxy")
+# Supports: MCP_ENVIRONMENT (preferred) or ENVIRONMENT (legacy)
+MCP_ENVIRONMENT = os.environ.get("MCP_ENVIRONMENT") or os.environ.get("ENVIRONMENT", "STAGING")
+
+# MCP GCP Configuration
+# Supports: MCP_GCP_PROJECT_ID (preferred) or GCP_PROJECT_ID (legacy)
+MCP_GCP_PROJECT_ID = os.environ.get("MCP_GCP_PROJECT_ID") or GCP_PROJECT_ID
+
+# Supports: MCP_GCP_REGION (preferred) or GCP_REGION (legacy)
+MCP_GCP_REGION = os.environ.get("MCP_GCP_REGION") or GCP_REGION
+
+# Supports: MCP_CLOUD_RUN_SERVICE (preferred) or CLOUD_RUN_SERVICE (legacy)
+MCP_CLOUD_RUN_SERVICE = os.environ.get("MCP_CLOUD_RUN_SERVICE") or CLOUD_RUN_SERVICE
 
 # Web Access Configuration
 MCP_WEB_ALLOWED_DOMAINS = os.environ.get(
