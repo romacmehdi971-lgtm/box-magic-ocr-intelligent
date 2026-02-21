@@ -34,6 +34,9 @@ COPY --from=builder /root/.local /root/.local
 # Copy application code
 COPY app/ /app/app/
 
+# Copy MCP server manifest
+COPY mcp_server_manifest.json /app/
+
 # Ensure Python can find our packages
 ENV PATH=/root/.local/bin:$PATH
 ENV PYTHONUNBUFFERED=1
