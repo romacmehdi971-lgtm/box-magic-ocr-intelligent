@@ -617,3 +617,243 @@ async def terminal_run(
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# PHASE 3 ENDPOINTS - Apps Script, Cloud Logging, Secrets
+# ============================================================================
+
+from app import phase3_clients
+
+@router.get("/apps-script/project/{script_id}/deployments")
+async def apps_script_deployments(
+    script_id: str,
+    x_api_key: str = Header(None)
+):
+    """Get Apps Script project deployments"""
+    run_id = generate_run_id("apps_script", "deployments")
+    
+    try:
+        deployments_data = phase3_clients.get_apps_script_deployments(script_id)
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "script_id": script_id,
+            "deployments": deployments_data.get("deployments", []),
+            "total_deployments": deployments_data.get("total_deployments", 0),
+            "timestamp": deployments_data.get("timestamp"),
+            "error": deployments_data.get("error")
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/apps-script/project/{script_id}/structure")
+async def apps_script_structure(
+    script_id: str,
+    x_api_key: str = Header(None)
+):
+    """Get Apps Script project structure"""
+    run_id = generate_run_id("apps_script", "structure")
+    
+    try:
+        structure_data = phase3_clients.get_apps_script_structure(script_id)
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "script_id": script_id,
+            "files": structure_data.get("files", []),
+            "total_files": structure_data.get("total_files", 0),
+            "timestamp": structure_data.get("timestamp"),
+            "error": structure_data.get("error")
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/cloud-logging/query")
+async def cloud_logging_query(
+    filter_str: str,
+    resource_names: Optional[List[str]] = None,
+    time_range_hours: int = 24,
+    limit: int = 100,
+    x_api_key: str = Header(None)
+):
+    """Query Cloud Logging"""
+    run_id = generate_run_id("cloud_logging", "query")
+    
+    if limit > 1000:
+        limit = 1000
+    
+    try:
+        logs_data = phase3_clients.query_cloud_logging(
+            filter_str=filter_str,
+            resource_names=resource_names,
+            time_range_hours=time_range_hours,
+            limit=limit
+        )
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "filter": logs_data.get("filter"),
+            "time_range_hours": time_range_hours,
+            "total_entries": logs_data.get("total_entries", 0),
+            "entries": logs_data.get("entries", []),
+            "timestamp": logs_data.get("timestamp"),
+            "error": logs_data.get("error")
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/secrets/list")
+async def secrets_list(
+    limit: int = 50,
+    x_api_key: str = Header(None)
+):
+    """List secrets (metadata only, no values)"""
+    run_id = generate_run_id("secrets", "list")
+    
+    if limit > 200:
+        limit = 200
+    
+    try:
+        secrets_data = phase3_clients.list_secrets(limit=limit)
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "project_id": secrets_data.get("project_id"),
+            "total_secrets": secrets_data.get("total_secrets", 0),
+            "secrets": secrets_data.get("secrets", []),
+            "timestamp": secrets_data.get("timestamp"),
+            "error": secrets_data.get("error")
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/secrets/{secret_id}/reference")
+async def secrets_reference(
+    secret_id: str,
+    version: str = "latest",
+    x_api_key: str = Header(None)
+):
+    """Get secret reference (metadata only, NO VALUE)"""
+    run_id = generate_run_id("secrets", "reference")
+    
+    try:
+        secret_data = phase3_clients.get_secret_reference(secret_id, version)
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "secret_id": secret_id,
+            "version": secret_data.get("version"),
+            "full_name": secret_data.get("full_name"),
+            "state": secret_data.get("state"),
+            "create_time": secret_data.get("create_time"),
+            "value_provided": False,
+            "value": "[REDACTED]",
+            "mount_path_suggestion": secret_data.get("mount_path_suggestion"),
+            "timestamp": secret_data.get("timestamp"),
+            "error": secret_data.get("error")
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/secrets/create")
+async def secrets_create(
+    secret_id: str,
+    value: str,
+    mode: str = "DRY_RUN",
+    labels: Optional[Dict[str, str]] = None,
+    x_api_key: str = Header(None)
+):
+    """Create secret (DRY_RUN by default, APPLY after GO)"""
+    run_id = generate_run_id("secrets", "create")
+    
+    if mode != "APPLY":
+        mode = "DRY_RUN"
+    
+    try:
+        if mode == "DRY_RUN":
+            result = phase3_clients.create_secret_dryrun(secret_id, value, labels)
+        else:
+            # APPLY mode (governed by GO)
+            result = {
+                "mode": "APPLY",
+                "error": "APPLY mode requires explicit GO confirmation",
+                "governance_note": "Contact admin for APPLY mode execution"
+            }
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "mode": mode,
+            "secret_id": secret_id,
+            "result": result
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/secrets/{secret_id}/rotate")
+async def secrets_rotate(
+    secret_id: str,
+    new_value: str,
+    mode: str = "DRY_RUN",
+    x_api_key: str = Header(None)
+):
+    """Rotate secret (DRY_RUN by default, APPLY after GO)"""
+    run_id = generate_run_id("secrets", "rotate")
+    
+    if mode != "APPLY":
+        mode = "DRY_RUN"
+    
+    try:
+        if mode == "DRY_RUN":
+            result = phase3_clients.rotate_secret_dryrun(secret_id, new_value)
+        else:
+            # APPLY mode (governed by GO)
+            result = {
+                "mode": "APPLY",
+                "error": "APPLY mode requires explicit GO confirmation",
+                "governance_note": "Contact admin for APPLY mode execution"
+            }
+        
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "mode": mode,
+            "secret_id": secret_id,
+            "result": result
+        }
+        
+        return redact_response(response)
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
