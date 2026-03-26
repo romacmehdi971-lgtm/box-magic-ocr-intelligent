@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # - roles/browser
 
 SCOPES = [
-    'https://www.googleapis.com/auth/cloud-platform.read-only'
+    'https://www.googleapis.com/auth/cloud-platform'
 ]
 
 
