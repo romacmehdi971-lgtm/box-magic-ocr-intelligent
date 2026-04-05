@@ -514,10 +514,79 @@
         "stderr": "string",
         "exit_code": "integer"
       }
+    },
+    {
+      "name": "drive_markdown_upsert_governed",
+      "description": "Écriture gouvernée dans un fichier Markdown Drive. Modes autorisés: append_end et replace_section. Refuse les fichiers non markdown et les conflits de version si expected_sha256 est fourni.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "file_id": {
+            "type": "string"
+          },
+          "governance_reason": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "trace_memory_log": {
+            "type": "boolean",
+            "default": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "append_end",
+              "replace_section"
+            ]
+          },
+          "content": {
+            "type": "string"
+          },
+          "expected_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "section_start_marker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "section_end_marker": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "file_id",
+          "governance_reason",
+          "source",
+          "idempotency_key",
+          "mode",
+          "content"
+        ],
+        "additionalProperties": false
+      }
     }
   ],
   "authentication": {
-    "methods": ["api_key", "iam_token"],
+    "methods": [
+      "api_key",
+      "iam_token"
+    ],
     "api_key_header": "X-API-Key",
     "iam_bearer_header": "Authorization: Bearer <token>"
   },

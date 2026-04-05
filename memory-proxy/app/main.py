@@ -882,6 +882,12 @@ async def get_documentation():
             "path": "/docs-json",
             "description": "Get API documentation in JSON format",
             "auth_required": False
+        },
+        {
+            "method": "POST",
+            "path": "/drive/file/{file_id}/markdown-upsert",
+            "description": "Governed markdown upsert in Drive (.md only) with append_end or replace_section",
+            "auth_required": True
         }
     ]
     

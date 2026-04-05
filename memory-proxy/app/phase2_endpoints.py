@@ -13,6 +13,7 @@ from .governance import generate_run_id, ActionMode, should_apply_action, build_
 from .redaction import redact_response, redact_secret_value_always
 from .config import get_settings
 from . import drive_client
+from .drive_markdown import markdown_upsert
 
 router = APIRouter()
 settings = get_settings()
@@ -69,6 +70,19 @@ class CloudLoggingQueryRequest(BaseModel):
 
 
 # ============================================================================
+
+class DriveMarkdownUpsertRequest(BaseModel):
+    governance_reason: Optional[str] = None
+    source: Optional[str] = None
+    idempotency_key: Optional[str] = None
+    dry_run: bool = True
+    trace_memory_log: bool = True
+    mode: str
+    content: str
+    expected_sha256: Optional[str] = None
+    section_start_marker: Optional[str] = None
+    section_end_marker: Optional[str] = None
+
 # DRIVE ENDPOINTS
 # ============================================================================
 
@@ -178,6 +192,56 @@ async def drive_search(
 
 
 # ============================================================================
+
+@router.post("/drive/file/{file_id}/markdown-upsert")
+async def drive_markdown_upsert_governed(
+    file_id: str,
+    request: DriveMarkdownUpsertRequest,
+    x_api_key: str = Header(None)
+):
+    """Governed markdown upsert in Drive (.md only)."""
+    run_id = generate_run_id("drive", "markdown_upsert")
+
+    try:
+        result = markdown_upsert(
+            file_id=file_id,
+            mode=request.mode,
+            content=request.content,
+            expected_sha256=request.expected_sha256,
+            section_start_marker=request.section_start_marker,
+            section_end_marker=request.section_end_marker,
+            dry_run=request.dry_run,
+        )
+
+        if not result.get("ok"):
+            raise HTTPException(
+                status_code=result.get("status_code", 500),
+                detail=result.get("error", "Unknown error")
+            )
+
+        response = {
+            "ok": True,
+            "run_id": run_id,
+            "action": "DRIVE_MARKDOWN_UPSERT",
+            "dry_run": request.dry_run,
+            "mode": request.mode,
+            "file_id": file_id,
+            "file_name": result.get("file", {}).get("name"),
+            "mimeType": result.get("file", {}).get("mimeType"),
+            "previous_sha256": result.get("previous_sha256"),
+            "new_sha256": result.get("new_sha256"),
+            "bytes_written": result.get("bytes_written"),
+            "replaced_section": result.get("replaced_section"),
+            "message": result.get("message"),
+        }
+
+        return redact_response(response)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 # APPS SCRIPT ENDPOINTS
 # ============================================================================
 
