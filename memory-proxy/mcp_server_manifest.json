@@ -660,6 +660,41 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "sheets_list_get",
+      "description": "Lister les onglets du Hub/Sheets",
+      "endpoint": "/sheets",
+      "method": "GET",
+      "parameters": {
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 50,
+          "description": "Nombre maximum d'onglets"
+        }
+      },
+      "mode": "READ_ONLY"
+    },
+    {
+      "name": "sheets_get_sheet_get",
+      "description": "Lire un onglet Hub/Sheets",
+      "endpoint": "/sheets/{sheet_name}",
+      "method": "GET",
+      "parameters": {
+        "sheet_name": {
+          "type": "string",
+          "required": true,
+          "description": "Nom de l'onglet"
+        },
+        "limit": {
+          "type": "integer",
+          "required": false,
+          "default": 200,
+          "description": "Nombre maximum de lignes"
+        }
+      },
+      "mode": "READ_ONLY"
     }
   ],
   "authentication": {

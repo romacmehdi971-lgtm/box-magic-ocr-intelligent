@@ -921,3 +921,39 @@ async def secrets_rotate(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+from fastapi import Depends, HTTPException
+
+def _phase2_get_sheets_client():
+    from .sheets import get_sheets_client
+    return get_sheets_client()
+
+@router.get("/sheets")
+async def sheets_list_get(limit: int = 50, sheets = Depends(_phase2_get_sheets_client)):
+    import uuid
+    try:
+        items = sheets.list_sheets()
+        if isinstance(items, list):
+            items = items[:limit]
+        return {
+            "run_id": f"sheets_list_{uuid.uuid4().hex[:8]}",
+            "total_sheets": len(items) if isinstance(items, list) else 0,
+            "sheets": items,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/sheets/{sheet_name}")
+async def sheets_get_sheet_get(sheet_name: str, limit: int = 200, sheets = Depends(_phase2_get_sheets_client)):
+    import uuid
+    try:
+        rows = sheets.get_sheet_data(sheet_name, include_headers=True, limit=limit)
+        return {
+            "run_id": f"sheets_get_{uuid.uuid4().hex[:8]}",
+            "sheet_name": sheet_name,
+            "total_rows": len(rows) if isinstance(rows, list) else 0,
+            "rows": rows,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
