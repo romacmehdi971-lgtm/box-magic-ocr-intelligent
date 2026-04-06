@@ -580,6 +580,86 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "sheets_append_rows_governed",
+      "description": "Écriture gouvernée par append dans un onglet Hub/Sheets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sheet_name": {
+            "type": "string"
+          },
+          "governance_reason": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "trace_memory_log": {
+            "type": "boolean",
+            "default": true
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array"
+            },
+            "minItems": 1
+          }
+        },
+        "required": [
+          "sheet_name",
+          "governance_reason",
+          "source",
+          "idempotency_key",
+          "rows"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "sheets_update_rows_governed",
+      "description": "Écriture gouvernée par mise à jour dans un onglet Hub/Sheets.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "sheet_name": {
+            "type": "string"
+          },
+          "governance_reason": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "default": true
+          },
+          "trace_memory_log": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "sheet_name",
+          "governance_reason",
+          "source",
+          "idempotency_key"
+        ],
+        "additionalProperties": false
+      }
     }
   ],
   "authentication": {

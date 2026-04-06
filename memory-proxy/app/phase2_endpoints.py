@@ -342,8 +342,8 @@ async def cloud_run_service_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/cloud-logging/query")
-async def cloud_logging_query(
+# DISABLED_OLD_DUPLICATE_ROUTE
+async def cloud_logging_query_legacy_disabled(
     request: CloudLoggingQueryRequest,
     x_api_key: str = Header(None)
 ):
