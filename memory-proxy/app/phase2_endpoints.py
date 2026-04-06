@@ -1086,11 +1086,14 @@ async def sheets_insert_top_governed(
                 "message": "DRY_RUN: insert_top simulated"
             }
 
-        written = sheets.insert_rows_top(
-            sheet_name,
+        worksheet = sheets.sheet.worksheet(sheet_name)
+        worksheet.insert_rows(
             payload.rows,
+            row=2,
+            value_input_option="RAW",
             inherit_from_before=payload.inherit_from_before,
         )
+        written = len(payload.rows)
 
         return {
             "ok": True,
@@ -1124,15 +1127,44 @@ async def sheets_upsert_by_key_governed(
                 "message": "DRY_RUN: upsert_by_key simulated"
             }
 
-        result = sheets.upsert_row_by_key(
-            sheet_name=sheet_name,
-            key_column=payload.key_column,
-            key_value=payload.key_value,
-            row_values=payload.row_values,
-            insert_if_missing=payload.insert_if_missing,
-            insert_row=payload.insert_row,
-            inherit_from_before=payload.inherit_from_before,
-        )
+        worksheet = sheets.sheet.worksheet(sheet_name)
+        values = worksheet.get_all_values()
+
+        if not values:
+            raise ValueError(f"Sheet {sheet_name} is empty")
+
+        headers = values[0]
+        if payload.key_column not in headers:
+            raise ValueError(f"Column '{payload.key_column}' not found in sheet {sheet_name}")
+
+        key_idx = headers.index(payload.key_column)
+        width = len(headers)
+
+        normalized = list(payload.row_values[:width]) + [""] * max(0, width - len(payload.row_values))
+        normalized = normalized[:width]
+
+        result = "not_found"
+        for i, row in enumerate(values[1:], start=2):
+            current = row[key_idx] if key_idx < len(row) else ""
+            if current == payload.key_value:
+                end_col = chr(64 + width)
+                worksheet.update(
+                    f"A{i}:{end_col}{i}",
+                    [normalized],
+                    value_input_option="RAW"
+                )
+                result = "updated"
+                break
+
+        if result == "not_found" and payload.insert_if_missing:
+            worksheet.insert_rows(
+                [normalized],
+                row=payload.insert_row,
+                value_input_option="RAW",
+                inherit_from_before=payload.inherit_from_before,
+            )
+            result = "inserted"
+
 
         return {
             "ok": True,
