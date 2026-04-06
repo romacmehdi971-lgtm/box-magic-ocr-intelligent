@@ -14,7 +14,7 @@ import hashlib
 
 SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "/app/sa-key.json")
 SCOPES = [
-    "https://www.googleapis.com/auth/drive.file",
+    "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/drive.metadata.readonly",
 ]
 
@@ -196,3 +196,4 @@ def markdown_upsert(
         "applied": True,
         "message": "Markdown upsert applied"
     }
+
