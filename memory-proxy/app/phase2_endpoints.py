@@ -1086,21 +1086,17 @@ async def sheets_insert_top_governed(
                 "message": "DRY_RUN: insert_top simulated"
             }
 
-        worksheet = sheets.sheet.worksheet(sheet_name)
-        worksheet.insert_rows(
-            payload.rows,
-            row=2,
-            value_input_option="RAW",
-            inherit_from_before=payload.inherit_from_before,
-        )
-        written = len(payload.rows)
+        inserted_rows = 0
+        for row in reversed(payload.rows):
+            sheets.insert_row_at_top(sheet_name, row)
+            inserted_rows += 1
 
         return {
             "ok": True,
             "run_id": f"sheets_insert_top_{uuid.uuid4().hex[:8]}",
             "sheet_name": sheet_name,
             "dry_run": False,
-            "rows_count": written,
+            "rows_count": inserted_rows,
             "insert_row": 2,
             "message": "Insert top applied"
         }
@@ -1127,13 +1123,10 @@ async def sheets_upsert_by_key_governed(
                 "message": "DRY_RUN: upsert_by_key simulated"
             }
 
-        worksheet = sheets.sheet.worksheet(sheet_name)
-        values = worksheet.get_all_values()
+        headers = sheets.get_headers(sheet_name)
+        if not headers:
+            raise ValueError(f"No headers found in sheet {sheet_name}")
 
-        if not values:
-            raise ValueError(f"Sheet {sheet_name} is empty")
-
-        headers = values[0]
         if payload.key_column not in headers:
             raise ValueError(f"Column '{payload.key_column}' not found in sheet {sheet_name}")
 
@@ -1143,28 +1136,23 @@ async def sheets_upsert_by_key_governed(
         normalized = list(payload.row_values[:width]) + [""] * max(0, width - len(payload.row_values))
         normalized = normalized[:width]
 
+        data = sheets.get_sheet_data(sheet_name, include_headers=True)
         result = "not_found"
-        for i, row in enumerate(values[1:], start=2):
-            current = row[key_idx] if key_idx < len(row) else ""
-            if current == payload.key_value:
-                end_col = chr(64 + width)
-                worksheet.update(
-                    f"A{i}:{end_col}{i}",
-                    [normalized],
-                    value_input_option="RAW"
-                )
-                result = "updated"
-                break
+
+        if len(data) > 1:
+            for row_number, row in enumerate(data[1:], start=2):
+                current = row[key_idx] if key_idx < len(row) else ""
+                if current == payload.key_value:
+                    sheets.update_row(sheet_name, row_number, normalized)
+                    result = "updated"
+                    break
 
         if result == "not_found" and payload.insert_if_missing:
-            worksheet.insert_rows(
-                [normalized],
-                row=payload.insert_row,
-                value_input_option="RAW",
-                inherit_from_before=payload.inherit_from_before,
-            )
+            if payload.insert_row == 2:
+                sheets.insert_row_at_top(sheet_name, normalized)
+            else:
+                sheets.append_row(sheet_name, normalized)
             result = "inserted"
-
 
         return {
             "ok": True,
