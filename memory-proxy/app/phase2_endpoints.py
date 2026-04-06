@@ -1041,3 +1041,109 @@ async def sheets_update_rows_governed(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+from typing import Any, List
+from pydantic import BaseModel
+import uuid
+
+class SheetsInsertTopRequest(BaseModel):
+    governance_reason: str
+    source: str
+    idempotency_key: str
+    dry_run: bool = True
+    trace_memory_log: bool = True
+    rows: List[List[Any]]
+    inherit_from_before: bool = False
+
+class SheetsUpsertByKeyRequest(BaseModel):
+    governance_reason: str
+    source: str
+    idempotency_key: str
+    dry_run: bool = True
+    trace_memory_log: bool = True
+    key_column: str
+    key_value: str
+    row_values: List[Any]
+    insert_if_missing: bool = True
+    insert_row: int = 2
+    inherit_from_before: bool = False
+
+@router.post("/sheets/{sheet_name}/insert_top")
+async def sheets_insert_top_governed(
+    sheet_name: str,
+    payload: SheetsInsertTopRequest,
+    sheets = Depends(_phase2_get_sheets_client),
+):
+    try:
+        if payload.dry_run:
+            return {
+                "ok": True,
+                "run_id": f"sheets_insert_top_{uuid.uuid4().hex[:8]}",
+                "sheet_name": sheet_name,
+                "dry_run": True,
+                "rows_count": len(payload.rows),
+                "insert_row": 2,
+                "message": "DRY_RUN: insert_top simulated"
+            }
+
+        written = sheets.insert_rows_top(
+            sheet_name,
+            payload.rows,
+            inherit_from_before=payload.inherit_from_before,
+        )
+
+        return {
+            "ok": True,
+            "run_id": f"sheets_insert_top_{uuid.uuid4().hex[:8]}",
+            "sheet_name": sheet_name,
+            "dry_run": False,
+            "rows_count": written,
+            "insert_row": 2,
+            "message": "Insert top applied"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/sheets/{sheet_name}/upsert_by_key")
+async def sheets_upsert_by_key_governed(
+    sheet_name: str,
+    payload: SheetsUpsertByKeyRequest,
+    sheets = Depends(_phase2_get_sheets_client),
+):
+    try:
+        if payload.dry_run:
+            return {
+                "ok": True,
+                "run_id": f"sheets_upsert_{uuid.uuid4().hex[:8]}",
+                "sheet_name": sheet_name,
+                "dry_run": True,
+                "key_column": payload.key_column,
+                "key_value": payload.key_value,
+                "insert_if_missing": payload.insert_if_missing,
+                "insert_row": payload.insert_row,
+                "message": "DRY_RUN: upsert_by_key simulated"
+            }
+
+        result = sheets.upsert_row_by_key(
+            sheet_name=sheet_name,
+            key_column=payload.key_column,
+            key_value=payload.key_value,
+            row_values=payload.row_values,
+            insert_if_missing=payload.insert_if_missing,
+            insert_row=payload.insert_row,
+            inherit_from_before=payload.inherit_from_before,
+        )
+
+        return {
+            "ok": True,
+            "run_id": f"sheets_upsert_{uuid.uuid4().hex[:8]}",
+            "sheet_name": sheet_name,
+            "dry_run": False,
+            "key_column": payload.key_column,
+            "key_value": payload.key_value,
+            "result": result,
+            "message": "Upsert by key applied"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

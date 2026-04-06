@@ -695,6 +695,118 @@
         }
       },
       "mode": "READ_ONLY"
+    },
+    {
+      "name": "sheets_insert_top_governed",
+      "description": "Écriture gouvernée en insertion haute (ligne 2) dans un onglet Hub/Sheets.",
+      "endpoint": "/sheets/{sheet_name}/insert_top",
+      "method": "POST",
+      "parameters": {
+        "sheet_name": {
+          "type": "string",
+          "required": true,
+          "description": "Nom de l'onglet"
+        },
+        "governance_reason": {
+          "type": "string",
+          "required": true
+        },
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "required": true
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": false,
+          "default": true
+        },
+        "trace_memory_log": {
+          "type": "boolean",
+          "required": false,
+          "default": true
+        },
+        "inherit_from_before": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        },
+        "rows": {
+          "type": "array",
+          "required": true,
+          "description": "Lignes à insérer en ligne 2"
+        }
+      },
+      "mode": "WRITE_GOVERNED"
+    },
+    {
+      "name": "sheets_upsert_by_key_governed",
+      "description": "Écriture gouvernée par upsert sur une clé métier dans un onglet Hub/Sheets.",
+      "endpoint": "/sheets/{sheet_name}/upsert_by_key",
+      "method": "PATCH",
+      "parameters": {
+        "sheet_name": {
+          "type": "string",
+          "required": true,
+          "description": "Nom de l'onglet"
+        },
+        "governance_reason": {
+          "type": "string",
+          "required": true
+        },
+        "source": {
+          "type": "string",
+          "required": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "required": true
+        },
+        "dry_run": {
+          "type": "boolean",
+          "required": false,
+          "default": true
+        },
+        "trace_memory_log": {
+          "type": "boolean",
+          "required": false,
+          "default": true
+        },
+        "key_column": {
+          "type": "string",
+          "required": true,
+          "description": "Nom de la colonne clé"
+        },
+        "key_value": {
+          "type": "string",
+          "required": true,
+          "description": "Valeur de la clé"
+        },
+        "row_values": {
+          "type": "array",
+          "required": true,
+          "description": "Ligne complète à écrire"
+        },
+        "insert_if_missing": {
+          "type": "boolean",
+          "required": false,
+          "default": true
+        },
+        "insert_row": {
+          "type": "integer",
+          "required": false,
+          "default": 2
+        },
+        "inherit_from_before": {
+          "type": "boolean",
+          "required": false,
+          "default": false
+        }
+      },
+      "mode": "WRITE_GOVERNED"
     }
   ],
   "authentication": {

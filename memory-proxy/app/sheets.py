@@ -457,3 +457,69 @@ def get_sheets_client() -> SheetsClient:
     if _sheets_client is None:
         _sheets_client = SheetsClient()
     return _sheets_client
+
+
+    def insert_rows_top(self, sheet_name: str, rows: list[list], inherit_from_before: bool = False) -> int:
+        """
+        Insert rows at line 2 (just below header), pushing existing data downward.
+        With inherit_from_before=False, formatting is inherited from the row after
+        the insertion point (expected: old line 2 -> white data row).
+        """
+        worksheet = self.sheet.worksheet(sheet_name)
+        worksheet.insert_rows(
+            rows,
+            row=2,
+            value_input_option="RAW",
+            inherit_from_before=inherit_from_before,
+        )
+        return len(rows)
+
+    def upsert_row_by_key(
+        self,
+        sheet_name: str,
+        key_column: str,
+        key_value: str,
+        row_values: list,
+        insert_if_missing: bool = True,
+        insert_row: int = 2,
+        inherit_from_before: bool = False,
+    ) -> str:
+        """
+        Update a row identified by header key_column == key_value.
+        If not found and insert_if_missing=True, insert at insert_row.
+        """
+        worksheet = self.sheet.worksheet(sheet_name)
+        values = worksheet.get_all_values()
+
+        if not values:
+            raise ValueError(f"Sheet {sheet_name} is empty")
+
+        headers = values[0]
+        if key_column not in headers:
+            raise ValueError(f"Column '{key_column}' not found in sheet {sheet_name}")
+
+        key_idx = headers.index(key_column)
+        width = len(headers)
+
+        normalized = list(row_values[:width]) + [""] * max(0, width - len(row_values))
+        normalized = normalized[:width]
+
+        for i, row in enumerate(values[1:], start=2):
+            current = row[key_idx] if key_idx < len(row) else ""
+            if current == key_value:
+                start_col = 1
+                end_col = width
+                worksheet.update(f"A{i}:{chr(64+end_col)}{i}", [normalized], value_input_option="RAW")
+                return "updated"
+
+        if insert_if_missing:
+            worksheet.insert_rows(
+                [normalized],
+                row=insert_row,
+                value_input_option="RAW",
+                inherit_from_before=inherit_from_before,
+            )
+            return "inserted"
+
+        return "not_found"
+
