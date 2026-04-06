@@ -580,6 +580,36 @@
         ],
         "additionalProperties": false
       }
+    },
+    {
+      "name": "memory_log_write",
+      "description": "Écriture gouvernée stricte dans MEMORY_LOG du Hub",
+      "endpoint": "/memory_log/write",
+      "method": "POST",
+      "parameters": {
+        "type": {
+          "type": "string",
+          "required": true,
+          "description": "Type métier autorisé"
+        },
+        "title": {
+          "type": "string",
+          "required": true,
+          "description": "Titre court"
+        },
+        "details": {
+          "type": "string",
+          "required": true,
+          "description": "Détail utile"
+        },
+        "tags": {
+          "type": "string",
+          "required": true,
+          "description": "Tags séparés par ;"
+        }
+      },
+      "mode": "WRITE_GOVERNED",
+      "governance": "STRICT_MEMORY_LOG"
     }
   ],
   "authentication": {
