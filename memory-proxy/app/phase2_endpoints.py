@@ -957,3 +957,87 @@ async def sheets_get_sheet_get(sheet_name: str, limit: int = 200, sheets = Depen
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+from fastapi import Depends, HTTPException
+from pydantic import BaseModel
+from typing import Any, List
+import uuid
+
+class SheetsAppendRowsRequest(BaseModel):
+    governance_reason: str
+    source: str
+    idempotency_key: str
+    dry_run: bool = True
+    trace_memory_log: bool = True
+    rows: List[List[Any]]
+
+class SheetsUpdateRowsRequest(BaseModel):
+    governance_reason: str
+    source: str
+    idempotency_key: str
+    dry_run: bool = True
+    trace_memory_log: bool = True
+
+def _phase2_get_sheets_client():
+    from .sheets import get_sheets_client
+    return get_sheets_client()
+
+@router.post("/sheets/{sheet_name}/append")
+async def sheets_append_rows_governed(
+    sheet_name: str,
+    payload: SheetsAppendRowsRequest,
+    sheets = Depends(_phase2_get_sheets_client),
+):
+    try:
+        if payload.dry_run:
+            return {
+                "ok": True,
+                "run_id": f"sheets_append_{uuid.uuid4().hex[:8]}",
+                "sheet_name": sheet_name,
+                "dry_run": True,
+                "rows_count": len(payload.rows),
+                "message": "DRY_RUN: append simulated"
+            }
+
+        written = 0
+        for row in payload.rows:
+            sheets.append_row(sheet_name, row)
+            written += 1
+
+        return {
+            "ok": True,
+            "run_id": f"sheets_append_{uuid.uuid4().hex[:8]}",
+            "sheet_name": sheet_name,
+            "dry_run": False,
+            "rows_count": written,
+            "message": "Append applied"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/sheets/{sheet_name}/update")
+async def sheets_update_rows_governed(
+    sheet_name: str,
+    payload: SheetsUpdateRowsRequest,
+    sheets = Depends(_phase2_get_sheets_client),
+):
+    try:
+        if payload.dry_run:
+            return {
+                "ok": True,
+                "run_id": f"sheets_update_{uuid.uuid4().hex[:8]}",
+                "sheet_name": sheet_name,
+                "dry_run": True,
+                "message": "DRY_RUN: update simulated"
+            }
+
+        return {
+            "ok": True,
+            "run_id": f"sheets_update_{uuid.uuid4().hex[:8]}",
+            "sheet_name": sheet_name,
+            "dry_run": False,
+            "message": "Update endpoint mounted; apply logic to be extended if row-targeting is required"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
