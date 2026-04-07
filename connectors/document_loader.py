@@ -218,43 +218,137 @@ class DocumentLoader:
     
     def _extract_pdf_ocr(self, file_path: str) -> str:
         """
-        Extrait texte d'un PDF scanné via OCR
-        
-        Nécessite :
-        - pdf2image (Python lib)
-        - poppler-utils (pdftoppm binary)
-        - tesseract-ocr (binary + lang data)
+        Extrait texte d'un PDF scanné via OCR (pytesseract).
+
+        Principes (stables, non "patch bancal") :
+        - Rendu PDF -> images via pdf2image
+        - OCR plein page (PSM configurable)
+        - Si les tokens de totaux (HT/TVA/TTC / NET A PAYER) ne sont pas détectés,
+          on déclenche un "FOOTER PASS" : OCR du bas de page (crop) avec pré-traitement
+          + double PSM (6 & 11) pour capturer les totaux.
         """
         try:
             from pdf2image import convert_from_path
             import pytesseract
+            from PIL import ImageOps, ImageEnhance
         except ImportError as e:
-            raise ValueError(f"OCR dependencies missing: {e}. Install: pip install pdf2image pytesseract")
-        
+            raise ValueError(f"OCR dependencies missing: {e}. Install: pip install pdf2image pytesseract pillow")
+
+        # ----------------------------
+        # Runtime configuration (env)
+        # ----------------------------
+        def _env_bool(name: str, default: bool) -> bool:
+            v = os.getenv(name)
+            if v is None:
+                return default
+            return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
+
+        def _env_int(name: str, default: int) -> int:
+            v = os.getenv(name)
+            try:
+                return int(str(v).strip()) if v is not None and str(v).strip() else default
+            except Exception:
+                return default
+
+        def _env_float(name: str, default: float) -> float:
+            v = os.getenv(name)
+            try:
+                return float(str(v).strip()) if v is not None and str(v).strip() else default
+            except Exception:
+                return default
+
+        dpi = _env_int("OCR_PDF_DPI", 300)  # 300 DPI par défaut
+        lang = os.getenv("OCR_TESSERACT_LANG", "fra+eng") or "fra+eng"
+        oem = str(os.getenv("OCR_TESSERACT_OEM", "1") or "1").strip() or "1"
+        psm_main = str(os.getenv("OCR_TESSERACT_PSM_MAIN", "6") or "6").strip() or "6"
+        psm_footer = str(os.getenv("OCR_TESSERACT_PSM_FOOTER", "11") or "11").strip() or "11"
+
+        footer_pass = _env_bool("OCR_FOOTER_PASS", True)
+        footer_ratio = _env_float("OCR_FOOTER_RATIO", 0.35)
+        footer_ratio = max(0.15, min(0.60, footer_ratio))  # garde-fou
+
+        # ----------------------------
+        # Heuristiques "totaux"
+        # ----------------------------
+        def _has_totals_tokens_(t: str) -> bool:
+            t2 = (t or "").upper()
+            if "TOTAL" in t2 and ("TTC" in t2 or "TVA" in t2 or "HT" in t2):
+                return True
+            if "NET A PAYER" in t2 or "NET À PAYER" in t2:
+                return True
+            if "BASE HT" in t2 or "TOTAL TVA" in t2 or "TOTAL TTC" in t2:
+                return True
+            return False
+
+        def _preproc(img):
+            # Pré-traitement simple pour améliorer les petits caractères
+            try:
+                g = img.convert("L")
+                g = ImageOps.autocontrast(g)
+                g = ImageEnhance.Contrast(g).enhance(2.0)
+                g = g.point(lambda x: 0 if x < 180 else 255, "1")
+                return g
+            except Exception:
+                return img
+
+        def _ocr(img, psm: str, preproc: bool = False) -> str:
+            try:
+                img2 = _preproc(img) if preproc else img
+                config = f"--oem {oem} --psm {psm}"
+                return pytesseract.image_to_string(img2, lang=lang, config=config)
+            except Exception as e:
+                logger.warning(f"OCR failed (psm={psm}): {e}")
+                return ""
+
         try:
             # Convertir PDF en images (nécessite poppler-utils)
-            logger.debug(f"Converting PDF to images (requires poppler-utils)...")
-            images = convert_from_path(file_path, dpi=200)  # 200 DPI pour meilleure qualité
-            logger.info(f"Converted to {len(images)} image(s)")
-            
-            # OCR sur chaque page
-            text = []
+            logger.debug(f"Converting PDF to images (dpi={dpi})...")
+            images = convert_from_path(file_path, dpi=dpi)
+            logger.info(f"Converted to {len(images)} image(s) (dpi={dpi})")
+
+            text_parts = []
             for i, image in enumerate(images):
-                logger.debug(f"OCR page {i+1}/{len(images)}...")
-                # Utiliser fra+eng pour meilleur résultat
-                page_text = pytesseract.image_to_string(image, lang='fra+eng')
-                text.append(page_text)
+                logger.debug(f"OCR page {i+1}/{len(images)} (psm={psm_main})...")
+                page_text = _ocr(image, psm_main, preproc=False) or ""
                 logger.debug(f"  → Page {i+1}: {len(page_text)} chars")
-            
-            full_text = '\n'.join(text)
+
+                footer_text = ""
+                if footer_pass and not _has_totals_tokens_(page_text):
+                    # OCR bas de page (totaux)
+                    try:
+                        w, h = image.size
+                        y0 = int(h * (1.0 - footer_ratio))
+                        y0 = max(0, min(h - 1, y0))
+                        footer_img = image.crop((0, y0, w, h))
+
+                        t1 = _ocr(footer_img, psm_main, preproc=True) or ""
+                        t2 = _ocr(footer_img, psm_footer, preproc=True) or ""
+
+                        # Choix du meilleur candidat
+                        best = ""
+                        if _has_totals_tokens_(t1):
+                            best = t1
+                        elif _has_totals_tokens_(t2):
+                            best = t2
+                        else:
+                            best = t1 if len(t1) >= len(t2) else t2
+
+                        if best.strip():
+                            logger.info(f"OCR_FOOTER_PASS: page={i+1}, footer_len={len(best)}, ratio={footer_ratio}")
+                            footer_text = f"\n[FOOTER_OCR_PAGE_{i+1}]\n{best}\n"
+                    except Exception as e:
+                        logger.warning(f"OCR_FOOTER_PASS failed (page={i+1}): {e}")
+
+                text_parts.append(page_text + footer_text)
+
+            full_text = "\n".join(text_parts)
             logger.info(f"OCR completed: {len(full_text)} total chars from {len(images)} page(s)")
-            
             return full_text
-            
+
         except Exception as e:
             logger.error(f"PDF to image conversion or OCR failed: {e}")
             raise ValueError(f"OCR processing failed: {e}. Check poppler-utils and tesseract installation.")
-    
+
     def _load_image(self, file_path: str) -> Document:
         """Charge une image via OCR"""
         if not self.has_pytesseract:
